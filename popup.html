@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>YT Subtitle Grabber</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header>
+        <h1>YT Subtitle Grabber</h1>
+        <p class="subtitle">Lấy phụ đề từ video YouTube đang mở</p>
+      </header>
+
+      <section class="card">
+        <div class="row">
+          <button id="refreshBtn" class="primary">Tải danh sách phụ đề</button>
+        </div>
+        <p id="status" class="status">Mở một video YouTube rồi bấm nút ở trên.</p>
+      </section>
+
+      <section class="card">
+        <label for="trackSelect">Track phụ đề</label>
+        <select id="trackSelect" disabled>
+          <option>Chưa có dữ liệu</option>
+        </select>
+      </section>
+
+      <section class="card actions">
+        <button id="copyBtn" disabled>Sao chép TXT</button>
+        <button id="txtBtn" disabled>Tải TXT</button>
+        <button id="srtBtn" disabled>Tải SRT</button>
+        <button id="vttBtn" disabled>Tải VTT</button>
+      </section>
+
+      <section class="card">
+        <label for="preview">Xem trước</label>
+        <textarea id="preview" rows="14" readonly placeholder="Phụ đề sẽ hiện ở đây..."></textarea>
+      </section>
+
+      <details class="card debug-card">
+        <summary>Chẩn đoán</summary>
+        <pre id="debug" class="debug">Chưa có log.</pre>
+      </details>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
