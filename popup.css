@@ -38,8 +38,7 @@ h1 {
 }
 
 .row,
-.actions,
-.secondary-actions {
+.actions {
   display: grid;
   gap: 8px;
 }
@@ -83,11 +82,19 @@ label {
   color: #cbd5e1;
 }
 
-.status {
+.status,
+.note-text {
   margin: 10px 0 0;
   font-size: 12px;
   color: #cbd5e1;
   line-height: 1.5;
+}
+
+.note-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #f9fafb;
 }
 
 textarea {

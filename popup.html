@@ -9,7 +9,7 @@
   <body>
     <main class="app">
       <header>
-        <h1>YT Subtitle Grabber v3.2</h1>
+        <h1>YT Subtitle Grabber v4</h1>
         <p class="subtitle">Ưu tiên phụ đề gốc, dịch là phần bổ sung của YouTube</p>
       </header>
 
@@ -30,7 +30,7 @@
       <section class="card">
         <label for="targetLanguageSelect">Ngôn ngữ đầu ra (dịch tự động của YouTube)</label>
         <select id="targetLanguageSelect" disabled>
-          <option>Giữ nguyên phụ đề gốc</option>
+          <option value="__original__">Giữ nguyên phụ đề gốc đã chọn</option>
         </select>
       </section>
 
@@ -41,8 +41,12 @@
         <button id="vttBtn" disabled>Tải VTT</button>
       </section>
 
-      <section class="card secondary-actions">
-        <button id="panelBtn">Dự phòng: đọc transcript gốc</button>
+      <section class="card note-card">
+        <p class="note-title">Lưu ý</p>
+        <p class="note-text">
+          “Dịch tự động” phụ thuộc vào chính YouTube. Nhiều video cho dịch, nhưng cũng có video trả rỗng.
+          Bản này ưu tiên làm ổn định phần phụ đề gốc, rồi mới thử dịch nếu YouTube hỗ trợ.
+        </p>
       </section>
 
       <section class="card">

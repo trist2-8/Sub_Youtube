@@ -1,43 +1,24 @@
 {
   "manifest_version": 3,
   "name": "YT Subtitle Grabber",
-  "version": "1.2.0",
-  "description": "Lấy phụ đề gốc và bản dịch từ video YouTube đang mở, xuất TXT/SRT/VTT.",
+  "version": "4.0.0",
+  "description": "Lấy phụ đề gốc từ video YouTube và thử dịch sang ngôn ngữ khác bằng YouTube auto-translate.",
   "minimum_chrome_version": "114",
-  "permissions": ["activeTab", "downloads", "storage", "tabs", "scripting"],
+  "permissions": [
+    "activeTab",
+    "downloads",
+    "tabs",
+    "scripting"
+  ],
   "host_permissions": [
     "https://www.youtube.com/*",
     "https://m.youtube.com/*",
     "https://music.youtube.com/*"
   ],
-  "background": {
-    "service_worker": "background.js"
-  },
   "action": {
     "default_title": "YT Subtitle Grabber",
     "default_popup": "popup.html"
   },
-  "content_scripts": [
-    {
-      "matches": [
-        "https://www.youtube.com/*",
-        "https://m.youtube.com/*",
-        "https://music.youtube.com/*"
-      ],
-      "js": ["content.js"],
-      "run_at": "document_idle"
-    }
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": ["page-bridge.js"],
-      "matches": [
-        "https://www.youtube.com/*",
-        "https://m.youtube.com/*",
-        "https://music.youtube.com/*"
-      ]
-    }
-  ],
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
