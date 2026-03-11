@@ -2,13 +2,14 @@
   const BRIDGE_SCRIPT_ID = 'ytsg-page-bridge';
   const REQUEST_EVENT = 'ytsg:request';
   const RESPONSE_EVENT = 'ytsg:response';
-  const BRIDGE_READY_EVENT = 'ytsg:bridge-ready';
   const DEFAULT_TIMEOUT_MS = 15000;
+
   let requestCounter = 0;
   const pendingRequests = new Map();
 
   ensureBridge();
   window.addEventListener(RESPONSE_EVENT, onBridgeResponse);
+
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleMessage(message)
       .then((result) => sendResponse(result))
@@ -19,11 +20,13 @@
           debug: [formatError(error)],
         });
       });
+
     return true;
   });
 
   function ensureBridge() {
     if (document.getElementById(BRIDGE_SCRIPT_ID)) return;
+
     const script = document.createElement('script');
     script.id = BRIDGE_SCRIPT_ID;
     script.src = chrome.runtime.getURL('page-bridge.js');
@@ -35,6 +38,7 @@
     const detail = event.detail || {};
     const requestId = detail.requestId;
     if (!requestId || !pendingRequests.has(requestId)) return;
+
     const pending = pendingRequests.get(requestId);
     clearTimeout(pending.timer);
     pendingRequests.delete(requestId);
@@ -44,6 +48,7 @@
   function askBridge(action, payload, timeoutMs = DEFAULT_TIMEOUT_MS) {
     return new Promise((resolve, reject) => {
       ensureBridge();
+
       const requestId = `req_${Date.now()}_${++requestCounter}`;
       const timer = setTimeout(() => {
         pendingRequests.delete(requestId);
@@ -51,6 +56,7 @@
       }, timeoutMs);
 
       pendingRequests.set(requestId, { resolve, reject, timer });
+
       window.dispatchEvent(
         new CustomEvent(REQUEST_EVENT, {
           detail: { requestId, action, payload },
@@ -64,19 +70,31 @@
       return { ok: false, error: 'Invalid message.' };
     }
 
+    if (message.type === 'PING') {
+      return { ok: true, source: 'content-script' };
+    }
+
     if (message.type === 'GET_TRACKS') {
       return askBridge('GET_METADATA', {});
     }
 
     if (message.type === 'FETCH_TRACK') {
       const track = message.track;
-      if (!track) {
-        return { ok: false, error: 'Thiếu track để tải.' };
-      }
+      if (!track) return { ok: false, error: 'Thiếu track để tải.' };
 
       const bridgeResult = await askBridge('FETCH_TRACK', { track }, 25000);
       if (bridgeResult?.ok && Array.isArray(bridgeResult.cues) && bridgeResult.cues.length) {
         return bridgeResult;
+      }
+
+      if (track.isTranslation) {
+        return {
+          ok: false,
+          error:
+            bridgeResult?.error ||
+            'Track dịch không tải được bằng timedtext. Transcript panel không đáng tin cho track dịch.',
+          debug: bridgeResult?.debug || [],
+        };
       }
 
       const fallbackResult = await extractTranscriptFromPanel(track);
@@ -86,9 +104,7 @@
         ...(fallbackResult?.debug || []),
       ];
 
-      if (fallbackResult.ok) {
-        return fallbackResult;
-      }
+      if (fallbackResult.ok) return fallbackResult;
 
       return {
         ok: false,
@@ -104,10 +120,6 @@
       return extractTranscriptFromPanel(message.track || null);
     }
 
-    if (message.type === 'PING') {
-      return { ok: true, source: 'content-script' };
-    }
-
     return { ok: false, error: 'Unknown message type.' };
   }
 
@@ -115,15 +127,21 @@
     const debug = [];
     const push = (line) => debug.push(line);
 
-    const existing = getTranscriptPanel();
-    if (!existing) {
+    if (track?.isTranslation) {
+      return {
+        ok: false,
+        error: 'Transcript panel không hỗ trợ tin cậy cho track dịch.',
+        debug,
+      };
+    }
+
+    if (!getTranscriptPanel()) {
       push('Chưa thấy transcript panel, thử mở panel...');
       const opened = await ensureTranscriptPanelOpen(debug);
       if (!opened) {
         return {
           ok: false,
-          error:
-            'Không mở được transcript panel tự động. Hãy bấm Show transcript trên YouTube rồi thử lại.',
+          error: 'Không mở được transcript panel tự động. Hãy mở transcript trên YouTube rồi thử lại.',
           debug,
         };
       }
@@ -140,12 +158,6 @@
         error: 'Transcript panel không tồn tại sau khi mở.',
         debug,
       };
-    }
-
-    if (track) {
-      push(
-        `Fallback đang đọc transcript panel hiện tại. YouTube có thể không cho đổi đúng track ${track.label} bằng DOM.`
-      );
     }
 
     const cues = parseTranscriptPanel(panel, debug);
@@ -170,7 +182,7 @@
     const push = (line) => debug.push(line);
 
     if (getTranscriptPanel()) {
-      push('Panel đã có sẵn, không cần click mở.');
+      push('Panel đã có sẵn.');
       return true;
     }
 
@@ -183,11 +195,11 @@
         push(`Đã click nút: ${button.innerText?.trim() || button.getAttribute('aria-label') || 'unknown'}`);
         await delay(900);
         if (getTranscriptPanel()) {
-          push('Transcript panel đã xuất hiện sau khi click.');
+          push('Transcript panel đã xuất hiện.');
           return true;
         }
       } catch (error) {
-        push(`Click nút transcript thất bại: ${error.message}`);
+        push(`Click nút transcript lỗi: ${error.message}`);
       }
     }
 
@@ -197,20 +209,22 @@
         moreActionsButton.click();
         push('Đã mở menu More actions.');
         await delay(500);
+
         const menuItem = findTranscriptMenuItem();
         if (menuItem) {
           menuItem.click();
           push('Đã click menu item Show transcript.');
           await delay(900);
+
           if (getTranscriptPanel()) {
             push('Transcript panel đã xuất hiện sau menu More actions.');
             return true;
           }
         } else {
-          push('Không tìm thấy menu item Show transcript trong menu hiện tại.');
+          push('Không tìm thấy menu item Show transcript.');
         }
       } catch (error) {
-        push(`Mở transcript từ More actions thất bại: ${error.message}`);
+        push(`Mở transcript từ menu lỗi: ${error.message}`);
       }
     } else {
       push('Không tìm thấy nút More actions.');
@@ -248,8 +262,7 @@
 
     return buttons.filter((button) => {
       const text = `${button.innerText || ''} ${button.getAttribute('aria-label') || ''}`.toLowerCase();
-      if (!text) return false;
-      return phrases.some((phrase) => text.includes(phrase));
+      return text && phrases.some((phrase) => text.includes(phrase));
     });
   }
 
@@ -259,17 +272,17 @@
 
     for (const button of candidates) {
       const label = `${button.getAttribute('aria-label') || ''} ${button.title || ''}`.toLowerCase();
-      if (phrases.some((phrase) => label.includes(phrase))) {
-        return button;
-      }
+      if (phrases.some((phrase) => label.includes(phrase))) return button;
     }
 
-    const compact = document.querySelector('ytd-menu-renderer yt-button-shape button');
-    return compact || null;
+    return document.querySelector('ytd-menu-renderer yt-button-shape button') || null;
   }
 
   function findTranscriptMenuItem() {
-    const items = Array.from(document.querySelectorAll('tp-yt-paper-item, ytd-menu-service-item-renderer, button'));
+    const items = Array.from(
+      document.querySelectorAll('tp-yt-paper-item, ytd-menu-service-item-renderer, button')
+    );
+
     const phrases = [
       'show transcript',
       'open transcript',
@@ -282,8 +295,7 @@
     return (
       items.find((item) => {
         const text = (item.innerText || item.textContent || '').trim().toLowerCase();
-        if (!text) return false;
-        return phrases.some((phrase) => text.includes(phrase));
+        return text && phrases.some((phrase) => text.includes(phrase));
       }) || null
     );
   }
@@ -291,14 +303,16 @@
   async function waitForTranscriptSegments(debug) {
     const push = (line) => debug.push(line);
     const start = Date.now();
+
     while (Date.now() - start < 7000) {
       const segments = getTranscriptSegments();
       if (segments.length) {
-        push(`Transcript panel đã có ${segments.length} segment element.`);
+        push(`Transcript panel có ${segments.length} segment element.`);
         return true;
       }
       await delay(300);
     }
+
     push('Hết thời gian chờ segment trong transcript panel.');
     return false;
   }
@@ -310,16 +324,12 @@
       '[data-testid="transcript-segment"]',
     ];
 
-    const segmentNodes = [];
     for (const selector of selectors) {
       const nodes = Array.from(document.querySelectorAll(selector));
-      if (nodes.length) {
-        segmentNodes.push(...nodes);
-        break;
-      }
+      if (nodes.length) return nodes;
     }
 
-    return segmentNodes;
+    return [];
   }
 
   function parseTranscriptPanel(panel, debug) {
@@ -333,6 +343,7 @@
             node.querySelector('.segment-timestamp')?.textContent ||
             node.querySelector('#start-offset')?.textContent ||
             '';
+
           const text =
             node.querySelector('.segment-text')?.textContent ||
             node.querySelector('#segment-text')?.textContent ||
@@ -369,8 +380,13 @@
       const text = normalizeCueText(item.textContent || '');
       const match = text.match(/^(\d{1,2}:\d{2}(?::\d{2})?)\s+([\s\S]+)$/);
       if (!match) continue;
+
       const startMs = parseClockToMs(match[1]);
-      cues.push({ startMs, endMs: startMs + 2000, text: normalizeCueText(match[2]) });
+      cues.push({
+        startMs,
+        endMs: startMs + 2000,
+        text: normalizeCueText(match[2]),
+      });
     }
 
     for (let i = 0; i < cues.length - 1; i += 1) {
@@ -379,35 +395,41 @@
       }
     }
 
-    push(`Đọc được ${cues.length} cue từ text fallback trong transcript panel.`);
-    return dedupeCues(cues);
+    const deduped = dedupeCues(cues);
+    push(`Đọc được ${deduped.length} cue từ text fallback trong transcript panel.`);
+    return deduped;
   }
 
   function dedupeCues(cues) {
     const unique = [];
     const seen = new Set();
+
     for (const cue of cues) {
       const key = `${cue.startMs}|${cue.text}`;
       if (seen.has(key)) continue;
       seen.add(key);
       unique.push(cue);
     }
+
     return unique;
   }
 
   function parseClockToMs(value) {
     const raw = String(value || '').trim().replace(',', '.');
     if (!raw) return 0;
+
     if (/^\d+(\.\d+)?$/.test(raw)) {
       return Math.round(parseFloat(raw) * 1000);
     }
 
     const match = raw.match(/^(?:(\d+):)?(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?$/);
     if (!match) return 0;
+
     const hours = Number(match[1] || 0);
     const minutes = Number(match[2] || 0);
     const seconds = Number(match[3] || 0);
     const millis = Number((match[4] || '0').padEnd(3, '0'));
+
     return hours * 3600000 + minutes * 60000 + seconds * 1000 + millis;
   }
 

@@ -9,8 +9,8 @@
   <body>
     <main class="app">
       <header>
-        <h1>YT Subtitle Grabber v3</h1>
-        <p class="subtitle">Ổn định hơn với content script, background và transcript fallback</p>
+        <h1>YT Subtitle Grabber v3.2</h1>
+        <p class="subtitle">Ưu tiên phụ đề gốc, dịch là phần bổ sung của YouTube</p>
       </header>
 
       <section class="card">
@@ -21,9 +21,16 @@
       </section>
 
       <section class="card">
-        <label for="trackSelect">Track phụ đề</label>
-        <select id="trackSelect" disabled>
+        <label for="sourceTrackSelect">Phụ đề gốc</label>
+        <select id="sourceTrackSelect" disabled>
           <option>Chưa có dữ liệu</option>
+        </select>
+      </section>
+
+      <section class="card">
+        <label for="targetLanguageSelect">Ngôn ngữ đầu ra (dịch tự động của YouTube)</label>
+        <select id="targetLanguageSelect" disabled>
+          <option>Giữ nguyên phụ đề gốc</option>
         </select>
       </section>
 
@@ -35,7 +42,7 @@
       </section>
 
       <section class="card secondary-actions">
-        <button id="panelBtn">Thử transcript panel</button>
+        <button id="panelBtn">Dự phòng: đọc transcript gốc</button>
       </section>
 
       <section class="card">

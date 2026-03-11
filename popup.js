@@ -1,14 +1,17 @@
 const state = {
   tab: null,
   videoTitle: '',
-  tracks: [],
-  selectedTrackIndex: -1,
+  sourceTracks: [],
+  translationLanguages: [],
+  selectedSourceIndex: -1,
+  selectedTargetLanguage: '__original__',
   transcript: null,
   debugLines: [],
 };
 
 const statusEl = document.getElementById('status');
-const trackSelectEl = document.getElementById('trackSelect');
+const sourceTrackSelectEl = document.getElementById('sourceTrackSelect');
+const targetLanguageSelectEl = document.getElementById('targetLanguageSelect');
 const previewEl = document.getElementById('preview');
 const debugEl = document.getElementById('debug');
 const refreshBtn = document.getElementById('refreshBtn');
@@ -19,8 +22,13 @@ const vttBtn = document.getElementById('vttBtn');
 const panelBtn = document.getElementById('panelBtn');
 
 refreshBtn.addEventListener('click', loadTracks);
-trackSelectEl.addEventListener('change', async (event) => {
-  state.selectedTrackIndex = Number(event.target.value);
+sourceTrackSelectEl.addEventListener('change', async (event) => {
+  state.selectedSourceIndex = Number(event.target.value);
+  rebuildTargetLanguageOptions();
+  await loadSelectedTrack();
+});
+targetLanguageSelectEl.addEventListener('change', async (event) => {
+  state.selectedTargetLanguage = event.target.value;
   await loadSelectedTrack();
 });
 copyBtn.addEventListener('click', copyTranscript);
@@ -60,7 +68,8 @@ function setActionsEnabled(enabled) {
 
 function setLoading(isLoading) {
   refreshBtn.disabled = isLoading;
-  trackSelectEl.disabled = isLoading || !state.tracks.length;
+  sourceTrackSelectEl.disabled = isLoading || !state.sourceTracks.length;
+  targetLanguageSelectEl.disabled = isLoading || !state.sourceTracks.length;
   panelBtn.disabled = isLoading;
 }
 
@@ -76,6 +85,24 @@ async function getActiveTab() {
   return tabs[0] || null;
 }
 
+function isSupportedYoutubeUrl(url) {
+  return /^https:\/\/(www|m|music)\.youtube\.com\/(watch|shorts)/.test(url || '');
+}
+
+async function ensureContentScriptInjected(tabId) {
+  try {
+    const ping = await chrome.tabs.sendMessage(tabId, { type: 'PING' });
+    if (ping?.ok) return;
+  } catch (error) {
+    // tiếp tục inject
+  }
+
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ['content.js'],
+  });
+}
+
 async function sendToTab(message) {
   const tab = state.tab || (await getActiveTab());
   state.tab = tab;
@@ -84,7 +111,19 @@ async function sendToTab(message) {
     throw new Error('Không tìm thấy tab đang mở.');
   }
 
-  return chrome.tabs.sendMessage(tab.id, message);
+  try {
+    return await chrome.tabs.sendMessage(tab.id, message);
+  } catch (error) {
+    const msg = String(error?.message || '');
+    if (
+      msg.includes('Could not establish connection') ||
+      msg.includes('Receiving end does not exist')
+    ) {
+      await ensureContentScriptInjected(tab.id);
+      return chrome.tabs.sendMessage(tab.id, message);
+    }
+    throw error;
+  }
 }
 
 async function loadTracks() {
@@ -92,7 +131,8 @@ async function loadTracks() {
   setActionsEnabled(false);
   previewEl.value = '';
   state.transcript = null;
-  state.selectedTrackIndex = -1;
+  state.selectedSourceIndex = -1;
+  state.selectedTargetLanguage = '__original__';
   setDebug([]);
 
   const tab = await getActiveTab();
@@ -102,100 +142,160 @@ async function loadTracks() {
     throw new Error('Không tìm thấy tab đang mở.');
   }
 
-  if (!/^https:\/\/www\.youtube\.com\/watch/.test(tab.url)) {
-    trackSelectEl.innerHTML = '<option>Không phải trang video YouTube</option>';
-    trackSelectEl.disabled = true;
-    setStatus('Hãy mở một URL dạng https://www.youtube.com/watch?v=...');
+  if (!isSupportedYoutubeUrl(tab.url)) {
+    sourceTrackSelectEl.innerHTML = '<option>Không phải trang video YouTube</option>';
+    targetLanguageSelectEl.innerHTML = '<option>Không phải trang video YouTube</option>';
+    sourceTrackSelectEl.disabled = true;
+    targetLanguageSelectEl.disabled = true;
+    setStatus('Hãy mở video YouTube dạng /watch hoặc /shorts.');
     setLoading(false);
     return;
   }
 
-  setStatus('Đang đọc danh sách track từ content script...');
+  setStatus('Đang đọc danh sách phụ đề từ trang YouTube...');
 
   const result = await sendToTab({ type: 'GET_TRACKS' });
   setDebug(result?.debug || []);
 
   if (!result?.ok) {
-    trackSelectEl.innerHTML = `<option>${escapeHtml(result?.error || 'Không tìm thấy dữ liệu phụ đề')}</option>`;
-    trackSelectEl.disabled = true;
-    setStatus(result?.error || 'Không tìm thấy dữ liệu phụ đề.');
+    sourceTrackSelectEl.innerHTML = `<option>${escapeHtml(result?.error || 'Không đọc được dữ liệu phụ đề')}</option>`;
+    targetLanguageSelectEl.innerHTML = '<option>Không có dữ liệu</option>';
+    sourceTrackSelectEl.disabled = true;
+    targetLanguageSelectEl.disabled = true;
+    setStatus(result?.error || 'Không đọc được dữ liệu phụ đề.');
     setLoading(false);
     return;
   }
 
   state.videoTitle = result.videoTitle || sanitizeFilename(tab.title || 'youtube-video');
-  state.tracks = result.tracks || [];
+  state.sourceTracks = Array.isArray(result.sourceTracks) ? result.sourceTracks : [];
+  state.translationLanguages = Array.isArray(result.translationLanguages)
+    ? result.translationLanguages
+    : [];
 
-  if (!state.tracks.length) {
-    trackSelectEl.innerHTML = '<option>Video này không có phụ đề khả dụng</option>';
-    trackSelectEl.disabled = true;
+  if (!state.sourceTracks.length) {
+    sourceTrackSelectEl.innerHTML = '<option>Video này không có phụ đề khả dụng</option>';
+    targetLanguageSelectEl.innerHTML = '<option>Không có ngôn ngữ dịch</option>';
+    sourceTrackSelectEl.disabled = true;
+    targetLanguageSelectEl.disabled = true;
     setStatus('Video này hiện không có phụ đề để trích xuất.');
     setLoading(false);
     return;
   }
 
-  renderTrackOptions();
-  state.selectedTrackIndex = 0;
-  trackSelectEl.value = '0';
-  setStatus(`Tìm thấy ${state.tracks.length} track phụ đề. Đang tải nội dung...`);
+  renderSourceTrackOptions();
+
+  const defaultIndex =
+    Number.isInteger(result.defaultSourceIndex) && result.defaultSourceIndex >= 0
+      ? result.defaultSourceIndex
+      : 0;
+
+  state.selectedSourceIndex = Math.min(defaultIndex, state.sourceTracks.length - 1);
+  sourceTrackSelectEl.value = String(state.selectedSourceIndex);
+
+  rebuildTargetLanguageOptions();
+  state.selectedTargetLanguage = '__original__';
+  targetLanguageSelectEl.value = '__original__';
+
+  setStatus(`Tìm thấy ${state.sourceTracks.length} phụ đề gốc. Đang tải nội dung...`);
   setLoading(false);
   await loadSelectedTrack();
 }
 
-function renderTrackOptions() {
-  trackSelectEl.innerHTML = '';
-
-  const originalGroup = document.createElement('optgroup');
-  originalGroup.label = 'Phụ đề gốc';
-
-  const translatedGroup = document.createElement('optgroup');
-  translatedGroup.label = 'Dịch tự động';
-
-  for (const [index, track] of state.tracks.entries()) {
+function renderSourceTrackOptions() {
+  sourceTrackSelectEl.innerHTML = '';
+  for (const [index, track] of state.sourceTracks.entries()) {
     const option = document.createElement('option');
     option.value = String(index);
     option.textContent = track.label;
+    sourceTrackSelectEl.appendChild(option);
+  }
+  sourceTrackSelectEl.disabled = false;
+}
 
-    if (track.isTranslation) {
-      translatedGroup.appendChild(option);
-    } else {
-      originalGroup.appendChild(option);
-    }
+function rebuildTargetLanguageOptions() {
+  targetLanguageSelectEl.innerHTML = '';
+
+  const originalOption = document.createElement('option');
+  originalOption.value = '__original__';
+  originalOption.textContent = 'Giữ nguyên phụ đề gốc đã chọn';
+  targetLanguageSelectEl.appendChild(originalOption);
+
+  const sourceTrack = state.sourceTracks[state.selectedSourceIndex];
+  if (!sourceTrack?.isTranslatable) {
+    targetLanguageSelectEl.disabled = false;
+    return;
   }
 
-  if (originalGroup.children.length) {
-    trackSelectEl.appendChild(originalGroup);
-  }
-  if (translatedGroup.children.length) {
-    trackSelectEl.appendChild(translatedGroup);
+  for (const lang of state.translationLanguages) {
+    if (!lang?.languageCode) continue;
+    if (lang.languageCode === sourceTrack.languageCode) continue;
+
+    const option = document.createElement('option');
+    option.value = lang.languageCode;
+    option.textContent = `${lang.name} [${lang.languageCode}]`;
+    targetLanguageSelectEl.appendChild(option);
   }
 
-  trackSelectEl.disabled = false;
+  targetLanguageSelectEl.disabled = false;
+}
+
+function buildEffectiveTrack() {
+  const sourceTrack = state.sourceTracks[state.selectedSourceIndex];
+  if (!sourceTrack) return null;
+
+  if (state.selectedTargetLanguage === '__original__') {
+    return {
+      ...sourceTrack,
+      isTranslation: false,
+      targetLanguageCode: sourceTrack.languageCode,
+      effectiveLabel: sourceTrack.label,
+    };
+  }
+
+  const target = state.translationLanguages.find(
+    (item) => item.languageCode === state.selectedTargetLanguage
+  );
+
+  return {
+    ...sourceTrack,
+    isTranslation: true,
+    targetLanguageCode: state.selectedTargetLanguage,
+    targetLanguageName: target?.name || state.selectedTargetLanguage,
+    effectiveLabel: `${target?.name || state.selectedTargetLanguage} [${state.selectedTargetLanguage}] ← ${sourceTrack.name} [${sourceTrack.languageCode}]`,
+  };
 }
 
 async function loadSelectedTrack() {
-  const track = state.tracks[state.selectedTrackIndex];
-  if (!track) {
-    setStatus('Chưa chọn track phụ đề.');
+  const effectiveTrack = buildEffectiveTrack();
+  if (!effectiveTrack) {
+    setStatus('Chưa chọn phụ đề gốc.');
     return;
   }
 
   setActionsEnabled(false);
-  setStatus(`Đang tải track: ${track.label}`);
-  setDebug([`Đang yêu cầu track ${track.label} từ content script...`]);
+  setStatus(`Đang tải: ${effectiveTrack.effectiveLabel || effectiveTrack.label}`);
+  setDebug([`Đang yêu cầu track ${effectiveTrack.effectiveLabel || effectiveTrack.label}...`]);
 
   try {
-    const result = await sendToTab({ type: 'FETCH_TRACK', track });
+    const result = await sendToTab({ type: 'FETCH_TRACK', track: effectiveTrack });
     setDebug(result?.debug || []);
 
     if (!result?.ok) {
       previewEl.value = '';
       state.transcript = null;
-      setStatus(result?.error || 'Không tải được phụ đề cho track đã chọn.');
+
+      if (effectiveTrack.isTranslation) {
+        setStatus(
+          'Bản dịch tự động của YouTube không khả dụng cho video này. Transcript panel chỉ đọc phụ đề gốc, không dịch.'
+        );
+      } else {
+        setStatus(result?.error || 'Không tải được phụ đề gốc cho lựa chọn hiện tại.');
+      }
       return;
     }
 
-    applyTranscriptResult(track, result);
+    applyTranscriptResult(effectiveTrack, result);
   } catch (error) {
     console.error(error);
     previewEl.value = '';
@@ -206,30 +306,40 @@ async function loadSelectedTrack() {
 }
 
 async function extractFromPanelOnly() {
-  const track = state.tracks[state.selectedTrackIndex] || null;
-  setStatus('Đang thử lấy transcript từ panel trên trang YouTube...');
+  const sourceTrack = state.sourceTracks[state.selectedSourceIndex] || null;
+
+  if (state.selectedTargetLanguage !== '__original__') {
+    setStatus('Transcript panel chỉ dùng để đọc phụ đề gốc, không dùng để dịch.');
+    return;
+  }
+
+  setStatus('Đang thử đọc transcript gốc từ panel của YouTube...');
   setActionsEnabled(false);
   previewEl.value = '';
 
   try {
-    const result = await sendToTab({ type: 'EXTRACT_PANEL_ONLY', track });
+    const result = await sendToTab({ type: 'EXTRACT_PANEL_ONLY', track: sourceTrack });
     setDebug(result?.debug || []);
 
     if (!result?.ok) {
-      setStatus(result?.error || 'Không lấy được transcript panel.');
+      setStatus(result?.error || 'Không đọc được transcript panel.');
       return;
     }
 
-    applyTranscriptResult(track || { languageCode: 'panel', label: 'Transcript panel' }, result);
+    applyTranscriptResult(
+      sourceTrack || { languageCode: 'panel', label: 'Transcript panel' },
+      result
+    );
   } catch (error) {
     console.error(error);
-    setStatus(error.message || 'Không lấy được transcript panel.');
+    setStatus(error.message || 'Không đọc được transcript panel.');
     setDebug([formatError(error)]);
   }
 }
 
 function applyTranscriptResult(track, result) {
   const cues = Array.isArray(result?.cues) ? result.cues : [];
+
   if (!cues.length) {
     previewEl.value = '';
     state.transcript = {
@@ -257,6 +367,7 @@ function applyTranscriptResult(track, result) {
     sourceFormat: result.sourceFormat || 'unknown',
     source: result.source || 'unknown',
   };
+
   previewEl.value = txt;
   setActionsEnabled(true);
   setStatus(
@@ -317,12 +428,15 @@ async function downloadTranscript(type) {
   }
 
   const track = state.transcript.track || { languageCode: 'unknown', label: 'subtitles' };
-  const sourceSuffix = state.transcript.source === 'panel' ? 'panel' : track.languageCode || 'unknown';
-  const baseName = sanitizeFilename(`${state.videoTitle} - ${sourceSuffix}`);
+  const suffix =
+    track.isTranslation && track.targetLanguageCode
+      ? `${track.sourceLanguageCode}-to-${track.targetLanguageCode}`
+      : track.languageCode || 'unknown';
+
+  const baseName = sanitizeFilename(`${state.videoTitle} - ${suffix}`);
 
   let content = '';
   let ext = type;
-  let mime = 'text/plain;charset=utf-8';
 
   if (type === 'txt') content = state.transcript.txt;
   if (type === 'srt') content = state.transcript.srt;
@@ -332,14 +446,14 @@ async function downloadTranscript(type) {
     type: 'DOWNLOAD_TEXT',
     filename: `${baseName}.${ext}`,
     content,
-    mime,
+    mime: 'text/plain;charset=utf-8',
   });
 
   if (!response?.ok) {
     throw new Error(response?.error || 'Không tải file được.');
   }
 
-  setStatus(`Đã tạo file ${ext.toUpperCase()} cho ${track.label || 'transcript'}.`);
+  setStatus(`Đã tạo file ${ext.toUpperCase()} cho ${track.effectiveLabel || track.label}.`);
 }
 
 function sanitizeFilename(name) {
