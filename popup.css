@@ -5,7 +5,7 @@
 
 body {
   margin: 0;
-  min-width: 420px;
+  min-width: 440px;
   background: #111827;
   color: #f9fafb;
 }
@@ -38,7 +38,8 @@ h1 {
 }
 
 .row,
-.actions {
+.actions,
+.secondary-actions {
   display: grid;
   gap: 8px;
 }

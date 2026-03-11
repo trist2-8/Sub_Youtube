@@ -1,14 +1,20 @@
-# YT Subtitle Grabber v2
+# YT Subtitle Grabber v3
 
-Bản nâng cấp của extension lấy phụ đề YouTube.
+Bản v3 được tách theo kiến trúc rõ ràng hơn:
 
-## Điểm cải thiện
+- `background.js`: xử lý tải file và service worker.
+- `content.js`: giao tiếp với trang YouTube và fallback transcript panel.
+- `page-bridge.js`: chạy ở MAIN world để đọc `ytInitialPlayerResponse`, gọi player API và fetch timedtext.
+- `popup.js`: UI của extension.
 
-- Không còn gọi `response.json()` trực tiếp trên response rỗng.
-- Thử nhiều định dạng phụ đề: JSON3, XML/TTML, VTT.
-- Fetch ngay trong ngữ cảnh trang YouTube để tận dụng first-party cookies.
-- Dò thêm các request `timedtext` thật từ `performance` để bắt các URL đang được player dùng.
-- Có bảng **Chẩn đoán** để xem từng lần thử tải.
+## Điểm nâng cấp
+
+- Không còn phụ thuộc hoàn toàn vào `response.json()`.
+- Có 2 lớp lấy phụ đề:
+  1. timedtext / player metadata
+  2. transcript panel fallback
+- Tách logic rõ hơn nên dễ sửa khi YouTube thay đổi.
+- Download đi qua background service worker.
 
 ## Cài đặt
 
@@ -16,13 +22,16 @@ Bản nâng cấp của extension lấy phụ đề YouTube.
 2. Mở `chrome://extensions/`
 3. Bật **Developer mode**.
 4. Chọn **Load unpacked**.
-5. Trỏ tới thư mục `yt-subtitle-extension-v2`.
+5. Trỏ tới thư mục `yt-subtitle-extension-v3`.
 
 ## Cách dùng
 
 1. Mở một video YouTube có phụ đề.
-2. Nếu cần, bật nút **CC** trên player trước.
-3. Bấm icon extension.
-4. Chọn track ngôn ngữ.
-5. Tải TXT / SRT / VTT hoặc sao chép nội dung.
-6. Nếu lỗi, mở mục **Chẩn đoán** trong popup để xem URL nào đang trả rỗng.
+2. Bấm icon extension.
+3. Chọn track.
+4. Nếu timedtext thất bại, bấm **Thử transcript panel** hoặc tự mở transcript panel trên YouTube rồi thử lại.
+
+## Lưu ý
+
+- Transcript panel fallback là best-effort vì YouTube thay đổi DOM khá thường xuyên.
+- Với vài video, panel transcript chỉ hiện khi YouTube thực sự hỗ trợ transcript trên giao diện hiện tại.
