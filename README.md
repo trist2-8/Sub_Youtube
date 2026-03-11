@@ -1,19 +1,28 @@
-# YT Subtitle Grabber v4
+# YT Subtitle Grabber v5
 
-Bản v4 bỏ hẳn content script / background phức tạp và chạy trực tiếp từ popup bằng
-`chrome.scripting.executeScript(..., { world: "MAIN" })`, nên tránh được lỗi:
+Bản v5 là bước nâng cấp đầu tiên theo hướng trải nghiệm dùng thật tốt hơn, thay vì cố thêm nhiều fallback phức tạp.
 
-- Could not establish connection
-- Receiving end does not exist
+## Mới trong v5
 
-## Điểm chính
+- Vẫn ưu tiên lấy **phụ đề gốc** trước.
+- Thêm **3 chế độ hiển thị / xuất file**:
+  - Chỉ phụ đề gốc
+  - Chỉ bản dịch
+  - Song ngữ
+- Thêm **làm sạch nội dung**:
+  - Gộp dòng trùng lặp liên tiếp
+  - Gộp câu ngắn liền nhau
+- **Ghi nhớ cài đặt** bằng `chrome.storage.local`:
+  - Kiểu hiển thị
+  - Tùy chọn làm sạch
+  - Ngôn ngữ đầu ra gần nhất
+- Bỏ hẳn các tầng `content.js / background.js / transcript panel` khỏi luồng chính; popup chạy trực tiếp bằng `chrome.scripting.executeScript(..., { world: "MAIN" })`.
 
-- Ưu tiên phụ đề gốc.
-- Tách riêng:
-  - Phụ đề gốc
-  - Ngôn ngữ đầu ra
-- Tự cố chọn phụ đề đang bật trên player nếu đọc được.
-- Dịch vẫn là best-effort từ YouTube auto-translate (`tlang`), không thể bảo đảm mọi video.
+## Lưu ý quan trọng
+
+- Phụ đề gốc thường ổn định hơn bản dịch.
+- Bản dịch vẫn dùng auto-translate của chính YouTube, nên có video được và có video không.
+- Nếu video có cả English gốc và Vietnamese gốc thật sự, hãy chọn trực tiếp ở ô **Phụ đề gốc** và để **Ngôn ngữ đầu ra** là **Giữ nguyên phụ đề gốc đã chọn**.
 
 ## Cài đặt
 
@@ -21,10 +30,5 @@ Bản v4 bỏ hẳn content script / background phức tạp và chạy trực t
 2. Mở `chrome://extensions/`
 3. Bật Developer mode.
 4. Chọn Load unpacked.
-5. Trỏ tới thư mục `yt-subtitle-extension-v4`.
-6. Sau khi reload extension, refresh lại tab YouTube một lần.
-
-## Khi nào dùng “Giữ nguyên phụ đề gốc đã chọn”
-
-- Khi video có nhiều phụ đề gốc thật sự, ví dụ English và Vietnamese.
-- Khi YouTube auto-translate trả rỗng.
+5. Trỏ tới thư mục `yt-subtitle-extension-v5`.
+6. Reload extension rồi refresh lại tab YouTube một lần.

@@ -1,3 +1,5 @@
+const STORAGE_KEY = 'ytSubtitleGrabberSettingsV5';
+
 const state = {
   tab: null,
   videoTitle: '',
@@ -5,13 +7,24 @@ const state = {
   translationLanguages: [],
   selectedSourceIndex: -1,
   selectedTargetLanguage: '__original__',
+  rawSourceCues: null,
+  rawTranslatedCues: null,
   transcript: null,
   debugLines: [],
+  settings: {
+    outputMode: 'original',
+    dedupeRepeats: true,
+    mergeShortCues: true,
+    preferredTargetLanguage: '__original__',
+  },
 };
 
 const statusEl = document.getElementById('status');
 const sourceTrackSelectEl = document.getElementById('sourceTrackSelect');
 const targetLanguageSelectEl = document.getElementById('targetLanguageSelect');
+const outputModeSelectEl = document.getElementById('outputModeSelect');
+const dedupeCheckboxEl = document.getElementById('dedupeCheckbox');
+const mergeCheckboxEl = document.getElementById('mergeCheckbox');
 const previewEl = document.getElementById('preview');
 const debugEl = document.getElementById('debug');
 const refreshBtn = document.getElementById('refreshBtn');
@@ -23,25 +36,56 @@ const vttBtn = document.getElementById('vttBtn');
 refreshBtn.addEventListener('click', loadTracks);
 sourceTrackSelectEl.addEventListener('change', async (event) => {
   state.selectedSourceIndex = Number(event.target.value);
+  state.rawSourceCues = null;
+  state.rawTranslatedCues = null;
   rebuildTargetLanguageOptions();
   await loadSelectedTrack();
 });
+
 targetLanguageSelectEl.addEventListener('change', async (event) => {
   state.selectedTargetLanguage = event.target.value;
+  state.settings.preferredTargetLanguage = state.selectedTargetLanguage;
+  await saveSettings();
+  state.rawTranslatedCues = null;
   await loadSelectedTrack();
 });
+
+outputModeSelectEl.addEventListener('change', async (event) => {
+  state.settings.outputMode = event.target.value;
+  await saveSettings();
+  await refreshRenderingAfterSettingChange();
+});
+
+dedupeCheckboxEl.addEventListener('change', async (event) => {
+  state.settings.dedupeRepeats = Boolean(event.target.checked);
+  await saveSettings();
+  await refreshRenderingAfterSettingChange();
+});
+
+mergeCheckboxEl.addEventListener('change', async (event) => {
+  state.settings.mergeShortCues = Boolean(event.target.checked);
+  await saveSettings();
+  await refreshRenderingAfterSettingChange();
+});
+
 copyBtn.addEventListener('click', copyTranscript);
 txtBtn.addEventListener('click', () => downloadTranscript('txt'));
 srtBtn.addEventListener('click', () => downloadTranscript('srt'));
 vttBtn.addEventListener('click', () => downloadTranscript('vtt'));
 
 document.addEventListener('DOMContentLoaded', () => {
-  loadTracks().catch((error) => {
+  init().catch((error) => {
     console.error(error);
     setStatus(error.message || 'Không thể tải phụ đề.');
     setDebug([formatError(error)]);
   });
 });
+
+async function init() {
+  await loadSettings();
+  applySettingsToUi();
+  await loadTracks();
+}
 
 function setStatus(message) {
   statusEl.textContent = message;
@@ -50,6 +94,12 @@ function setStatus(message) {
 function setDebug(lines) {
   state.debugLines = Array.isArray(lines) && lines.length ? lines : ['Chưa có log.'];
   debugEl.textContent = state.debugLines.join('\n');
+}
+
+function appendDebug(line) {
+  const lines = Array.isArray(state.debugLines) ? [...state.debugLines] : [];
+  lines.push(line);
+  setDebug(lines);
 }
 
 function setActionsEnabled(enabled) {
@@ -63,6 +113,55 @@ function setLoading(isLoading) {
   refreshBtn.disabled = isLoading;
   sourceTrackSelectEl.disabled = isLoading || !state.sourceTracks.length;
   targetLanguageSelectEl.disabled = isLoading || !state.sourceTracks.length;
+  outputModeSelectEl.disabled = isLoading;
+  dedupeCheckboxEl.disabled = isLoading;
+  mergeCheckboxEl.disabled = isLoading;
+}
+
+async function loadSettings() {
+  try {
+    const stored = await chrome.storage.local.get(STORAGE_KEY);
+    const saved = stored?.[STORAGE_KEY];
+    if (saved && typeof saved === 'object') {
+      state.settings = {
+        ...state.settings,
+        ...saved,
+      };
+    }
+  } catch (error) {
+    console.warn('Không đọc được settings từ storage:', error);
+  }
+}
+
+async function saveSettings() {
+  try {
+    await chrome.storage.local.set({
+      [STORAGE_KEY]: state.settings,
+    });
+  } catch (error) {
+    console.warn('Không lưu được settings:', error);
+  }
+}
+
+function applySettingsToUi() {
+  outputModeSelectEl.value = state.settings.outputMode || 'original';
+  dedupeCheckboxEl.checked = Boolean(state.settings.dedupeRepeats);
+  mergeCheckboxEl.checked = Boolean(state.settings.mergeShortCues);
+}
+
+async function refreshRenderingAfterSettingChange() {
+  if (!state.rawSourceCues) return;
+
+  const needsTranslated =
+    state.selectedTargetLanguage !== '__original__' &&
+    (state.settings.outputMode === 'translated' || state.settings.outputMode === 'bilingual');
+
+  if (needsTranslated && !state.rawTranslatedCues) {
+    await loadSelectedTrack();
+    return;
+  }
+
+  renderFromRawCues();
 }
 
 async function getActiveTab() {
@@ -97,8 +196,10 @@ async function loadTracks() {
   setActionsEnabled(false);
   previewEl.value = '';
   state.transcript = null;
+  state.rawSourceCues = null;
+  state.rawTranslatedCues = null;
   state.selectedSourceIndex = -1;
-  state.selectedTargetLanguage = '__original__';
+  state.selectedTargetLanguage = state.settings.preferredTargetLanguage || '__original__';
   setDebug([]);
 
   const tab = await getActiveTab();
@@ -158,8 +259,12 @@ async function loadTracks() {
   sourceTrackSelectEl.value = String(state.selectedSourceIndex);
 
   rebuildTargetLanguageOptions();
-  state.selectedTargetLanguage = '__original__';
-  targetLanguageSelectEl.value = '__original__';
+
+  const preferredTargetExists = Array.from(targetLanguageSelectEl.options).some(
+    (option) => option.value === state.selectedTargetLanguage
+  );
+  state.selectedTargetLanguage = preferredTargetExists ? state.selectedTargetLanguage : '__original__';
+  targetLanguageSelectEl.value = state.selectedTargetLanguage;
 
   setStatus(`Tìm thấy ${state.sourceTracks.length} phụ đề gốc. Đang tải nội dung...`);
   setLoading(false);
@@ -204,11 +309,11 @@ function rebuildTargetLanguageOptions() {
   targetLanguageSelectEl.disabled = false;
 }
 
-function buildEffectiveTrack() {
+function buildTrackRequest({ targetLanguage = '__original__' } = {}) {
   const sourceTrack = state.sourceTracks[state.selectedSourceIndex];
   if (!sourceTrack) return null;
 
-  if (state.selectedTargetLanguage === '__original__') {
+  if (targetLanguage === '__original__') {
     return {
       ...sourceTrack,
       isTranslation: false,
@@ -217,95 +322,260 @@ function buildEffectiveTrack() {
     };
   }
 
-  const target = state.translationLanguages.find(
-    (item) => item.languageCode === state.selectedTargetLanguage
-  );
-
+  const target = state.translationLanguages.find((item) => item.languageCode === targetLanguage);
   return {
     ...sourceTrack,
     isTranslation: true,
     sourceLanguageCode: sourceTrack.languageCode,
-    targetLanguageCode: state.selectedTargetLanguage,
-    targetLanguageName: target?.name || state.selectedTargetLanguage,
-    effectiveLabel: `${target?.name || state.selectedTargetLanguage} [${state.selectedTargetLanguage}] ← ${sourceTrack.name} [${sourceTrack.languageCode}]`,
+    targetLanguageCode: targetLanguage,
+    targetLanguageName: target?.name || targetLanguage,
+    effectiveLabel: `${target?.name || targetLanguage} [${targetLanguage}] ← ${sourceTrack.name} [${sourceTrack.languageCode}]`,
   };
 }
 
 async function loadSelectedTrack() {
-  const effectiveTrack = buildEffectiveTrack();
-  if (!effectiveTrack) {
+  const sourceRequest = buildTrackRequest({ targetLanguage: '__original__' });
+  if (!sourceRequest) {
     setStatus('Chưa chọn phụ đề gốc.');
     return;
   }
 
   setActionsEnabled(false);
-  setStatus(`Đang tải: ${effectiveTrack.effectiveLabel || effectiveTrack.label}`);
-  setDebug([`Đang yêu cầu track ${effectiveTrack.effectiveLabel || effectiveTrack.label}...`]);
+  setStatus(`Đang tải: ${sourceRequest.label}`);
+  setDebug([`Đang yêu cầu phụ đề gốc ${sourceRequest.label}...`]);
 
   try {
-    const result = await executeInPage(pageFetchTrack, [effectiveTrack]);
-    setDebug(result?.debug || []);
+    const sourceResult = await executeInPage(pageFetchTrack, [sourceRequest]);
+    setDebug(sourceResult?.debug || []);
 
-    if (!result?.ok) {
+    if (!sourceResult?.ok || !Array.isArray(sourceResult.cues) || !sourceResult.cues.length) {
       previewEl.value = '';
       state.transcript = null;
-
-      if (effectiveTrack.isTranslation) {
-        setStatus(
-          'Bản dịch tự động của YouTube không khả dụng cho video này. Hãy chọn “Giữ nguyên phụ đề gốc đã chọn”.'
-        );
-      } else {
-        setStatus(result?.error || 'Không tải được phụ đề gốc cho lựa chọn hiện tại.');
-      }
+      state.rawSourceCues = null;
+      state.rawTranslatedCues = null;
+      setStatus(sourceResult?.error || 'Không tải được phụ đề gốc cho lựa chọn hiện tại.');
       return;
     }
 
-    applyTranscriptResult(effectiveTrack, result);
+    state.rawSourceCues = sourceResult.cues;
+    state.rawTranslatedCues = null;
+
+    const needsTranslated =
+      state.selectedTargetLanguage !== '__original__' &&
+      (state.settings.outputMode === 'translated' || state.settings.outputMode === 'bilingual');
+
+    if (needsTranslated) {
+      const translationRequest = buildTrackRequest({ targetLanguage: state.selectedTargetLanguage });
+      appendDebug(`Đang yêu cầu bản dịch: ${translationRequest.effectiveLabel}`);
+      const translationResult = await executeInPage(pageFetchTrack, [translationRequest]);
+      setDebug([...(state.debugLines || []), '--- Translation fetch ---', ...(translationResult?.debug || [])]);
+
+      if (translationResult?.ok && Array.isArray(translationResult.cues) && translationResult.cues.length) {
+        state.rawTranslatedCues = translationResult.cues;
+      } else {
+        state.rawTranslatedCues = [];
+      }
+    }
+
+    renderFromRawCues();
   } catch (error) {
     console.error(error);
     previewEl.value = '';
     state.transcript = null;
+    state.rawSourceCues = null;
+    state.rawTranslatedCues = null;
     setStatus(error.message || 'Không tải được phụ đề.');
     setDebug([formatError(error)]);
   }
 }
 
-function applyTranscriptResult(track, result) {
-  const cues = Array.isArray(result?.cues) ? result.cues : [];
-
-  if (!cues.length) {
+function renderFromRawCues() {
+  if (!Array.isArray(state.rawSourceCues) || !state.rawSourceCues.length) {
     previewEl.value = '';
-    state.transcript = {
-      track,
-      cues: [],
-      txt: '',
-      srt: '',
-      vtt: 'WEBVTT\n\n',
-    };
-    setStatus('Track tồn tại nhưng không có câu phụ đề nào có thể đọc được.');
-    setActionsEnabled(true);
+    state.transcript = null;
+    setActionsEnabled(false);
     return;
   }
 
-  const txt = buildTxt(cues);
-  const srt = buildSrt(cues);
-  const vtt = buildVtt(cues);
+  const sourceTrack = state.sourceTracks[state.selectedSourceIndex];
+  const sourceCleaned = cleanCues(state.rawSourceCues, state.settings);
+  const translatedCleaned = Array.isArray(state.rawTranslatedCues)
+    ? cleanCues(state.rawTranslatedCues, state.settings)
+    : null;
+
+  const outputMode = state.settings.outputMode;
+  const translationSelected = state.selectedTargetLanguage !== '__original__';
+  let finalCues = [];
+  let modeLabel = 'phụ đề gốc';
+
+  if (outputMode === 'translated' && translationSelected) {
+    if (translatedCleaned && translatedCleaned.length) {
+      finalCues = translatedCleaned;
+      modeLabel = 'bản dịch';
+    } else {
+      previewEl.value = '';
+      state.transcript = null;
+      setActionsEnabled(false);
+      setStatus('Bản dịch tự động của YouTube không khả dụng cho video này.');
+      return;
+    }
+  } else if (outputMode === 'bilingual' && translationSelected) {
+    if (translatedCleaned && translatedCleaned.length) {
+      finalCues = buildBilingualCues(sourceCleaned, translatedCleaned);
+      modeLabel = 'song ngữ';
+    } else {
+      finalCues = sourceCleaned;
+      modeLabel = 'phụ đề gốc';
+      setStatus('Không lấy được bản dịch, đang hiển thị phụ đề gốc đã làm sạch.');
+    }
+  } else {
+    finalCues = sourceCleaned;
+    modeLabel = 'phụ đề gốc';
+  }
+
+  if (!finalCues.length) {
+    previewEl.value = '';
+    state.transcript = null;
+    setActionsEnabled(false);
+    setStatus('Không có phụ đề nào có thể hiển thị sau khi làm sạch.');
+    return;
+  }
+
+  const txt = buildTxt(finalCues);
+  const srt = buildSrt(finalCues);
+  const vtt = buildVtt(finalCues);
 
   state.transcript = {
-    track,
-    cues,
+    track: buildTrackRequest({ targetLanguage: state.selectedTargetLanguage }) || sourceTrack,
+    cues: finalCues,
     txt,
     srt,
     vtt,
-    sourceFormat: result.sourceFormat || 'unknown',
-    source: result.source || 'unknown',
+    modeLabel,
   };
 
   previewEl.value = txt;
   setActionsEnabled(true);
-  setStatus(
-    `Đã tải ${cues.length} câu phụ đề từ ${result.source || 'nguồn không rõ'} (${result.sourceFormat || 'unknown'})`
-  );
+
+  if (!(outputMode === 'bilingual' && translationSelected && (!translatedCleaned || !translatedCleaned.length))) {
+    setStatus(`Đã dựng ${finalCues.length} câu ở chế độ ${modeLabel}.`);
+  }
+}
+
+function cleanCues(cues, settings) {
+  const normalized = Array.isArray(cues)
+    ? cues
+        .map((cue) => ({
+          startMs: Number(cue.startMs) || 0,
+          endMs: Math.max(Number(cue.endMs) || 0, Number(cue.startMs) || 0),
+          text: normalizeTextForOutput(cue.text),
+        }))
+        .filter((cue) => cue.text)
+    : [];
+
+  let cleaned = normalized;
+
+  if (settings.dedupeRepeats) {
+    cleaned = dedupeConsecutiveCues(cleaned);
+  }
+
+  if (settings.mergeShortCues) {
+    cleaned = mergeShortAdjacentCues(cleaned);
+  }
+
+  return cleaned;
+}
+
+function normalizeTextForOutput(text) {
+  return String(text || '')
+    .replace(/\u200b/g, '')
+    .replace(/\r/g, '')
+    .replace(/\s+\n/g, '\n')
+    .replace(/\n\s+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
+function dedupeConsecutiveCues(cues) {
+  const merged = [];
+  for (const cue of cues) {
+    const prev = merged[merged.length - 1];
+    if (
+      prev &&
+      prev.text === cue.text &&
+      Math.abs(prev.endMs - cue.startMs) <= 800
+    ) {
+      prev.endMs = Math.max(prev.endMs, cue.endMs);
+      continue;
+    }
+    merged.push({ ...cue });
+  }
+  return merged;
+}
+
+function mergeShortAdjacentCues(cues) {
+  const merged = [];
+  const shouldMerge = (current, next) => {
+    if (!current || !next) return false;
+    const gap = next.startMs - current.endMs;
+    if (gap < 0 || gap > 250) return false;
+    if (current.text.includes('\n') || next.text.includes('\n')) return false;
+    if (current.text.length > 55 || next.text.length > 70) return false;
+    if (/[.!?…:]$/.test(current.text)) return false;
+    return true;
+  };
+
+  for (const cue of cues) {
+    const prev = merged[merged.length - 1];
+    if (shouldMerge(prev, cue)) {
+      prev.text = `${prev.text} ${cue.text}`.replace(/[ \t]{2,}/g, ' ').trim();
+      prev.endMs = Math.max(prev.endMs, cue.endMs);
+      continue;
+    }
+    merged.push({ ...cue });
+  }
+
+  return merged;
+}
+
+function buildBilingualCues(sourceCues, translatedCues) {
+  const result = [];
+
+  for (let i = 0; i < sourceCues.length; i += 1) {
+    const sourceCue = sourceCues[i];
+    const translatedCue = findBestTranslationCue(sourceCue, translatedCues, i);
+    const translatedText = translatedCue?.text || '';
+    const text = translatedText ? `${sourceCue.text}\n${translatedText}` : sourceCue.text;
+    result.push({
+      startMs: sourceCue.startMs,
+      endMs: sourceCue.endMs,
+      text,
+    });
+  }
+
+  return result;
+}
+
+function findBestTranslationCue(sourceCue, translatedCues, preferredIndex) {
+  if (!Array.isArray(translatedCues) || !translatedCues.length) return null;
+
+  const byIndex = translatedCues[preferredIndex];
+  if (byIndex && Math.abs((byIndex.startMs || 0) - sourceCue.startMs) <= 2000) {
+    return byIndex;
+  }
+
+  let best = null;
+  let bestDelta = Number.POSITIVE_INFINITY;
+  for (const cue of translatedCues) {
+    const delta = Math.abs((cue.startMs || 0) - sourceCue.startMs);
+    if (delta < bestDelta) {
+      best = cue;
+      bestDelta = delta;
+    }
+  }
+
+  return bestDelta <= 2500 ? best : null;
 }
 
 function buildTxt(cues) {
@@ -351,7 +621,7 @@ async function copyTranscript() {
   }
 
   await navigator.clipboard.writeText(state.transcript.txt);
-  setStatus('Đã sao chép phụ đề dạng TXT vào clipboard.');
+  setStatus(`Đã sao chép nội dung ở chế độ ${state.transcript.modeLabel || 'hiện tại'}.`);
 }
 
 async function downloadTranscript(type) {
@@ -366,7 +636,9 @@ async function downloadTranscript(type) {
       ? `${track.sourceLanguageCode}-to-${track.targetLanguageCode}`
       : track.languageCode || 'unknown';
 
-  const baseName = sanitizeFilename(`${state.videoTitle} - ${suffix}`);
+  const baseName = sanitizeFilename(
+    `${state.videoTitle} - ${suffix} - ${state.settings.outputMode}`
+  );
 
   let content = '';
   let ext = type;
@@ -384,7 +656,7 @@ async function downloadTranscript(type) {
       filename: `${baseName}.${ext}`,
       saveAs: true,
     });
-    setStatus(`Đã tạo file ${ext.toUpperCase()} cho ${track.effectiveLabel || track.label}.`);
+    setStatus(`Đã tạo file ${ext.toUpperCase()} ở chế độ ${state.transcript.modeLabel || 'hiện tại'}.`);
   } finally {
     setTimeout(() => URL.revokeObjectURL(url), 30000);
   }
@@ -396,7 +668,7 @@ function sanitizeFilename(name) {
       .replace(/[\\/:*?"<>|]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
-      .slice(0, 120) || 'youtube-subtitles'
+      .slice(0, 140) || 'youtube-subtitles'
   );
 }
 

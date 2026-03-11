@@ -9,8 +9,8 @@
   <body>
     <main class="app">
       <header>
-        <h1>YT Subtitle Grabber v4</h1>
-        <p class="subtitle">Ưu tiên phụ đề gốc, dịch là phần bổ sung của YouTube</p>
+        <h1>YT Subtitle Grabber v5</h1>
+        <p class="subtitle">Phụ đề gốc ổn định hơn, thêm song ngữ, làm sạch nội dung và ghi nhớ cài đặt</p>
       </header>
 
       <section class="card">
@@ -28,10 +28,31 @@
       </section>
 
       <section class="card">
-        <label for="targetLanguageSelect">Ngôn ngữ đầu ra (dịch tự động của YouTube)</label>
+        <label for="targetLanguageSelect">Ngôn ngữ đầu ra</label>
         <select id="targetLanguageSelect" disabled>
           <option value="__original__">Giữ nguyên phụ đề gốc đã chọn</option>
         </select>
+      </section>
+
+      <section class="card">
+        <label for="outputModeSelect">Kiểu hiển thị / xuất file</label>
+        <select id="outputModeSelect">
+          <option value="original">Chỉ phụ đề gốc</option>
+          <option value="translated">Chỉ bản dịch</option>
+          <option value="bilingual">Song ngữ</option>
+        </select>
+      </section>
+
+      <section class="card">
+        <p class="section-title">Làm sạch nội dung</p>
+        <label class="checkbox-row">
+          <input id="dedupeCheckbox" type="checkbox" checked />
+          <span>Gộp dòng trùng lặp liên tiếp</span>
+        </label>
+        <label class="checkbox-row">
+          <input id="mergeCheckbox" type="checkbox" checked />
+          <span>Gộp câu ngắn liền nhau</span>
+        </label>
       </section>
 
       <section class="card actions">
@@ -44,14 +65,14 @@
       <section class="card note-card">
         <p class="note-title">Lưu ý</p>
         <p class="note-text">
-          “Dịch tự động” phụ thuộc vào chính YouTube. Nhiều video cho dịch, nhưng cũng có video trả rỗng.
-          Bản này ưu tiên làm ổn định phần phụ đề gốc, rồi mới thử dịch nếu YouTube hỗ trợ.
+          Bản dịch vẫn dùng auto-translate của chính YouTube, nên có video được và có video không.
+          Bản v5 ưu tiên lấy phụ đề gốc trước, rồi mới dựng bản dịch hoặc song ngữ nếu YouTube hỗ trợ.
         </p>
       </section>
 
       <section class="card">
         <label for="preview">Xem trước</label>
-        <textarea id="preview" rows="14" readonly placeholder="Phụ đề sẽ hiện ở đây..."></textarea>
+        <textarea id="preview" rows="16" readonly placeholder="Phụ đề sẽ hiện ở đây..."></textarea>
       </section>
 
       <details class="card debug-card">
