@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "YT Subtitle Grabber",
-  "version": "2.1.1",
-  "description": "Lấy phụ đề gốc từ video YouTube, thử dịch tự động bằng YouTube, hỗ trợ song ngữ, làm sạch nội dung và ghi nhớ tùy chọn.",
+  "version": "2.1.5",
+  "description": "Ưu tiên phụ đề gốc theo video, đổi ngôn ngữ ổn định hơn, hỗ trợ song ngữ, export và ghi nhớ tùy chọn.",
   "minimum_chrome_version": "114",
   "permissions": [
     "activeTab",

@@ -1,34 +1,23 @@
-# YT Subtitle Grabber v5
+# YT Subtitle Grabber v8
 
-Bản v5 là bước nâng cấp đầu tiên theo hướng trải nghiệm dùng thật tốt hơn, thay vì cố thêm nhiều fallback phức tạp.
+Bản nâng cấp này giữ nguyên lõi popup workspace nhưng sửa đúng các điểm đang gây khó chịu khi dùng thật.
 
-## Mới trong v5
+## Nâng cấp chính
 
-- Vẫn ưu tiên lấy **phụ đề gốc** trước.
-- Thêm **3 chế độ hiển thị / xuất file**:
-  - Chỉ phụ đề gốc
-  - Chỉ bản dịch
-  - Song ngữ
-- Thêm **làm sạch nội dung**:
-  - Gộp dòng trùng lặp liên tiếp
-  - Gộp câu ngắn liền nhau
-- **Ghi nhớ cài đặt** bằng `chrome.storage.local`:
-  - Kiểu hiển thị
-  - Tùy chọn làm sạch
-  - Ngôn ngữ đầu ra gần nhất
-- Bỏ hẳn các tầng `content.js / background.js / transcript panel` khỏi luồng chính; popup chạy trực tiếp bằng `chrome.scripting.executeScript(..., { world: "MAIN" })`.
+- **Ưu tiên phụ đề gốc của video** khi đọc metadata, thay vì dễ bị lệch theo track đang bật trên player.
+- Thêm tùy chọn **tự tải lại khi đổi source / target / mode** để chuyển ngôn ngữ nhanh hơn.
+- Hiển thị rõ trong popup:
+  - ngôn ngữ gốc
+  - track đang chọn
+  - lý do chọn mặc định
+- Giữ nguyên các tính năng đang có:
+  - original / translated / bilingual
+  - cleaned transcript
+  - copy / export TXT, SRT, VTT
+  - history
+  - search
+  - range export
 
-## Lưu ý quan trọng
+## Ghi chú kiến trúc
 
-- Phụ đề gốc thường ổn định hơn bản dịch.
-- Bản dịch vẫn dùng auto-translate của chính YouTube, nên có video được và có video không.
-- Nếu video có cả English gốc và Vietnamese gốc thật sự, hãy chọn trực tiếp ở ô **Phụ đề gốc** và để **Ngôn ngữ đầu ra** là **Giữ nguyên phụ đề gốc đã chọn**.
-
-## Cài đặt
-
-1. Giải nén thư mục này.
-2. Mở `chrome://extensions/`
-3. Bật Developer mode.
-4. Chọn Load unpacked.
-5. Trỏ tới thư mục `yt-subtitle-extension-v5`.
-6. Reload extension rồi refresh lại tab YouTube một lần.
+Popup hiện tại đã tự chạy trực tiếp bằng `chrome.scripting.executeScript(..., { world: "MAIN" })`, nên các file `content.js`, `page-bridge.js`, `background.js` trong gói hiện tại chỉ còn là phần code cũ để tham khảo, không phải luồng runtime chính.

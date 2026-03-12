@@ -7,72 +7,261 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <main class="app">
-      <header>
-        <h1>YT Subtitle Grabber v5</h1>
-        <p class="subtitle">Phụ đề gốc ổn định hơn, thêm song ngữ, làm sạch nội dung và ghi nhớ cài đặt</p>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-logo" aria-hidden="true">YT</div>
+          <div class="brand-copy">
+            <h1>YT Subtitle Grabber</h1>
+            <p>Smart subtitle workspace</p>
+          </div>
+        </div>
+
+        <div class="topbar-actions">
+          <button id="refreshBtn" class="icon-btn" type="button" title="Refresh">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 11a8 8 0 1 0 2.34 5.66" />
+              <path d="M20 4v7h-7" />
+            </svg>
+          </button>
+
+          <button
+            id="settingsBtn"
+            class="icon-btn"
+            type="button"
+            title="Settings"
+            aria-expanded="false"
+            aria-controls="settingsPanel"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3.2" />
+              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 0 1-2.82 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.55V22a2 2 0 0 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.57 1.7 1.7 0 0 0-1.8.36l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1.03H2a2 2 0 0 1 0-4h.09a1.7 1.7 0 0 0 1.57-1.11 1.7 1.7 0 0 0-.36-1.8l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H8a1.7 1.7 0 0 0 1.03-1.55V2a2 2 0 0 1 4 0v.09a1.7 1.7 0 0 0 1.11 1.57 1.7 1.7 0 0 0 1.8-.36l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V8c0 .7.42 1.33 1.07 1.59.15.06.31.1.48.1H22a2 2 0 0 1 0 4h-.09A1.7 1.7 0 0 0 20.34 15" />
+            </svg>
+          </button>
+        </div>
       </header>
 
-      <section class="card">
-        <div class="row">
-          <button id="refreshBtn" class="primary">Tải danh sách phụ đề</button>
+      <section class="video-card card">
+        <div class="video-thumb-wrap">
+          <img id="videoThumb" class="video-thumb" alt="" />
         </div>
-        <p id="status" class="status">Mở một video YouTube rồi bấm nút ở trên.</p>
+
+        <div class="video-meta">
+          <div class="meta-row">
+            <span id="subtitleBadge" class="status-badge is-idle">Waiting</span>
+          </div>
+          <h2 id="videoTitle">Mở một video YouTube để bắt đầu</h2>
+          <p id="channelName" class="channel-name">Extension sẽ đọc video đang mở trong tab hiện tại</p>
+          <p id="trackMeta" class="channel-name track-meta">Track gốc: -</p>
+        </div>
       </section>
 
-      <section class="card">
-        <label for="sourceTrackSelect">Phụ đề gốc</label>
+      <section class="card compact-card">
+        <div class="field-head">
+          <label for="sourceTrackSelect">Subtitle language</label>
+          <button id="getSubtitlesBtn" class="ghost-btn" type="button">Get subtitles</button>
+        </div>
+
         <select id="sourceTrackSelect" disabled>
           <option>Chưa có dữ liệu</option>
         </select>
+
+        <p id="status" class="status-line">Mở một video YouTube rồi bấm Get subtitles hoặc refresh.</p>
       </section>
 
-      <section class="card">
-        <label for="targetLanguageSelect">Ngôn ngữ đầu ra</label>
-        <select id="targetLanguageSelect" disabled>
-          <option value="__original__">Giữ nguyên phụ đề gốc đã chọn</option>
-        </select>
+      <section id="settingsPanel" class="card settings-panel hidden" aria-hidden="true">
+        <div class="settings-grid">
+          <div class="field-block full-width">
+            <label for="targetLanguageSelect">Output language</label>
+            <select id="targetLanguageSelect" disabled>
+              <option value="__original__">Giữ nguyên phụ đề gốc đã chọn</option>
+            </select>
+          </div>
+
+          <div class="field-block full-width">
+            <label for="outputModeSelect">Display / export mode</label>
+            <select id="outputModeSelect">
+              <option value="original">Chỉ phụ đề gốc</option>
+              <option value="translated">Chỉ bản dịch</option>
+              <option value="bilingual">Song ngữ</option>
+            </select>
+          </div>
+
+          <div class="field-block full-width">
+            <label for="bilingualLayoutSelect">Bilingual layout</label>
+            <select id="bilingualLayoutSelect">
+              <option value="stacked">Stacked · gốc trên / dịch dưới</option>
+              <option value="split">Split · trái / phải</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="toggle-list">
+          <label class="toggle-row" for="dedupeCheckbox">
+            <div>
+              <span>Gộp dòng trùng lặp</span>
+              <small>Loại bỏ câu lặp liên tiếp</small>
+            </div>
+            <span class="switch">
+              <input id="dedupeCheckbox" type="checkbox" checked />
+              <span class="slider"></span>
+            </span>
+          </label>
+
+          <label class="toggle-row" for="mergeCheckbox">
+            <div>
+              <span>Gộp câu ngắn liền nhau</span>
+              <small>Làm transcript sạch và dễ đọc hơn</small>
+            </div>
+            <span class="switch">
+              <input id="mergeCheckbox" type="checkbox" checked />
+              <span class="slider"></span>
+            </span>
+          </label>
+
+          <label class="toggle-row" for="preferOriginalTrackCheckbox">
+            <div>
+              <span>Ưu tiên phụ đề gốc của video</span>
+              <small>Mặc định chọn track gốc theo audio / track mặc định của video</small>
+            </div>
+            <span class="switch">
+              <input id="preferOriginalTrackCheckbox" type="checkbox" checked />
+              <span class="slider"></span>
+            </span>
+          </label>
+
+          <label class="toggle-row" for="autoFetchOnChangeCheckbox">
+            <div>
+              <span>Tự tải lại khi đổi lựa chọn</span>
+              <small>Đổi source, target hoặc mode sẽ tải lại ngay không cần bấm Get subtitles</small>
+            </div>
+            <span class="switch">
+              <input id="autoFetchOnChangeCheckbox" type="checkbox" checked />
+              <span class="slider"></span>
+            </span>
+          </label>
+
+          <label class="toggle-row" for="timestampToggle">
+            <div>
+              <span>Hiện timestamp trong tab Text</span>
+              <small>Bật để xem thời gian ngay trong preview</small>
+            </div>
+            <span class="switch">
+              <input id="timestampToggle" type="checkbox" />
+              <span class="slider"></span>
+            </span>
+          </label>
+        </div>
       </section>
 
-      <section class="card">
-        <label for="outputModeSelect">Kiểu hiển thị / xuất file</label>
-        <select id="outputModeSelect">
-          <option value="original">Chỉ phụ đề gốc</option>
-          <option value="translated">Chỉ bản dịch</option>
-          <option value="bilingual">Song ngữ</option>
-        </select>
+      <section class="card action-card">
+        <div class="action-row action-row-main">
+          <button id="copyBtn" class="primary-btn" type="button" disabled>Copy current</button>
+
+          <div class="export-wrap">
+            <button
+              id="exportMenuBtn"
+              class="secondary-btn"
+              type="button"
+              disabled
+              aria-expanded="false"
+              aria-controls="exportMenu"
+            >
+              Export
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+
+            <div id="exportMenu" class="export-menu hidden" aria-hidden="true">
+              <button id="txtBtn" type="button" disabled>TXT</button>
+              <button id="srtBtn" type="button" disabled>SRT</button>
+              <button id="vttBtn" type="button" disabled>VTT</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="quick-actions">
+          <button id="copyTextBtn" class="mini-btn" type="button" disabled>Copy Text</button>
+          <button id="copyTimedBtn" class="mini-btn" type="button" disabled>Copy Timed</button>
+          <button id="copySrtBtn" class="mini-btn" type="button" disabled>Copy SRT</button>
+        </div>
       </section>
 
-      <section class="card">
-        <p class="section-title">Làm sạch nội dung</p>
-        <label class="checkbox-row">
-          <input id="dedupeCheckbox" type="checkbox" checked />
-          <span>Gộp dòng trùng lặp liên tiếp</span>
-        </label>
-        <label class="checkbox-row">
-          <input id="mergeCheckbox" type="checkbox" checked />
-          <span>Gộp câu ngắn liền nhau</span>
-        </label>
+      <section class="card range-card">
+        <div class="panel-head">
+          <div>
+            <p class="panel-kicker">Segment tools</p>
+            <h3>Copy / export một đoạn</h3>
+          </div>
+          <span class="panel-chip">Range</span>
+        </div>
+
+        <div class="range-grid">
+          <div class="field-block">
+            <label for="rangeStartInput">Start</label>
+            <input id="rangeStartInput" type="text" placeholder="00:00 hoặc 01:23:45" />
+          </div>
+
+          <div class="field-block">
+            <label for="rangeEndInput">End</label>
+            <input id="rangeEndInput" type="text" placeholder="00:30 hoặc 01:24:30" />
+          </div>
+        </div>
+
+        <p id="rangeInfo" class="search-info">Nhập khoảng thời gian để copy hoặc export một đoạn subtitle.</p>
+
+        <div class="range-actions">
+          <button id="copyRangeBtn" class="mini-btn" type="button" disabled>Copy Range</button>
+          <button id="exportRangeTxtBtn" class="mini-btn" type="button" disabled>TXT Range</button>
+          <button id="exportRangeSrtBtn" class="mini-btn" type="button" disabled>SRT Range</button>
+        </div>
       </section>
 
-      <section class="card actions">
-        <button id="copyBtn" disabled>Sao chép TXT</button>
-        <button id="txtBtn" disabled>Tải TXT</button>
-        <button id="srtBtn" disabled>Tải SRT</button>
-        <button id="vttBtn" disabled>Tải VTT</button>
+      <section class="card transcript-card">
+        <div class="panel-head">
+          <div>
+            <p class="panel-kicker">Transcript preview</p>
+            <h3>Readable output panel</h3>
+          </div>
+          <span id="previewMeta" class="panel-chip">Ready</span>
+        </div>
+
+        <div class="search-row">
+          <input id="searchInput" type="text" placeholder="Tìm trong transcript..." />
+          <button id="searchPrevBtn" class="search-btn" type="button">↑</button>
+          <button id="searchNextBtn" class="search-btn" type="button">↓</button>
+        </div>
+
+        <p id="searchInfo" class="search-info">Chưa tìm kiếm.</p>
+
+        <div id="transcriptPreview" class="transcript-preview empty">
+          <div class="empty-state">
+            <p>Phụ đề sẽ hiện ở đây sau khi tải xong.</p>
+          </div>
+        </div>
+
+        <textarea id="preview" rows="12" readonly hidden></textarea>
+
+        <div class="bottom-tabs" role="tablist" aria-label="Transcript modes">
+          <button class="tab-btn is-active" type="button" data-tab="text" role="tab" aria-selected="true">Text</button>
+          <button class="tab-btn" type="button" data-tab="timed" role="tab" aria-selected="false">Timed</button>
+          <button class="tab-btn" type="button" data-tab="srt" role="tab" aria-selected="false">SRT</button>
+        </div>
       </section>
 
-      <section class="card note-card">
-        <p class="note-title">Lưu ý</p>
-        <p class="note-text">
-          Bản dịch vẫn dùng auto-translate của chính YouTube, nên có video được và có video không.
-          Bản v5 ưu tiên lấy phụ đề gốc trước, rồi mới dựng bản dịch hoặc song ngữ nếu YouTube hỗ trợ.
-        </p>
-      </section>
+      <section class="card history-card">
+        <div class="panel-head">
+          <div>
+            <p class="panel-kicker">Recent history</p>
+            <h3>Video gần đây</h3>
+          </div>
+          <span id="historyCount" class="panel-chip">0 items</span>
+        </div>
 
-      <section class="card">
-        <label for="preview">Xem trước</label>
-        <textarea id="preview" rows="16" readonly placeholder="Phụ đề sẽ hiện ở đây..."></textarea>
+        <div id="historyList" class="history-list">
+          <div class="history-empty">Chưa có lịch sử gần đây.</div>
+        </div>
       </section>
 
       <details class="card debug-card">
