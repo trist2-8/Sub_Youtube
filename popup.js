@@ -20,6 +20,8 @@ const state = {
   previewTab: 'text',
   showTimestampInText: false,
   settingsOpen: false,
+  historyOpen: false,
+  selectionMode: 'full',
   searchQuery: '',
   searchMatches: [],
   activeSearchIndex: -1,
@@ -77,6 +79,11 @@ const srtBtn = document.getElementById('srtBtn');
 const vttBtn = document.getElementById('vttBtn');
 
 const settingsPanelEl = document.getElementById('settingsPanel');
+const historyPanelEl = document.getElementById('historyPanel');
+const settingsCloseBtn = document.getElementById('settingsCloseBtn');
+const historyBtn = document.getElementById('historyBtn');
+const historyCloseBtn = document.getElementById('historyCloseBtn');
+const clearHistoryBtn = document.getElementById('clearHistoryBtn');
 const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
 
 const videoThumbEl = document.getElementById('videoThumb');
@@ -84,6 +91,7 @@ const videoTitleEl = document.getElementById('videoTitle');
 const channelNameEl = document.getElementById('channelName');
 const trackMetaEl = document.getElementById('trackMeta');
 const subtitleBadgeEl = document.getElementById('subtitleBadge');
+const lineCountBadgeEl = document.getElementById('lineCountBadge');
 
 const searchInputEl = document.getElementById('searchInput');
 const searchInfoEl = document.getElementById('searchInfo');
@@ -99,6 +107,9 @@ const exportRangeSrtBtn = document.getElementById('exportRangeSrtBtn');
 
 const historyListEl = document.getElementById('historyList');
 const historyCountEl = document.getElementById('historyCount');
+const selectionModeFullBtn = document.getElementById('selectionModeFullBtn');
+const selectionModeCustomBtn = document.getElementById('selectionModeCustomBtn');
+const selectionCustomFieldsEl = document.getElementById('selectionCustomFields');
 
 document.addEventListener('DOMContentLoaded', () => {
   init().catch((error) => {
@@ -114,6 +125,12 @@ window.addEventListener('beforeunload', stopActiveTabWatcher);
 refreshBtn?.addEventListener('click', () => loadTracks({ force: true }));
 getSubtitlesBtn?.addEventListener('click', () => loadSelectedTrack());
 settingsBtn?.addEventListener('click', toggleSettingsPanel);
+historyBtn?.addEventListener('click', toggleHistoryPanel);
+settingsCloseBtn?.addEventListener('click', closeSettingsPanel);
+historyCloseBtn?.addEventListener('click', closeHistoryPanel);
+clearHistoryBtn?.addEventListener('click', clearHistory);
+selectionModeFullBtn?.addEventListener('click', () => setSelectionMode('full'));
+selectionModeCustomBtn?.addEventListener('click', () => setSelectionMode('custom'));
 
 sourceTrackSelectEl?.addEventListener('change', async (event) => {
   state.selectedSourceIndex = Number(event.target.value);
@@ -219,11 +236,22 @@ exportMenuBtn?.addEventListener('click', () => {
 });
 
 document.addEventListener('click', (event) => {
-  if (!exportMenuEl || !exportMenuBtn) return;
   const target = event.target;
   if (!(target instanceof Node)) return;
-  if (exportMenuEl.contains(target) || exportMenuBtn.contains(target)) return;
-  closeExportMenu();
+
+  if (exportMenuEl && exportMenuBtn && !exportMenuEl.contains(target) && !exportMenuBtn.contains(target)) {
+    closeExportMenu();
+  }
+
+  if (state.settingsOpen && settingsPanelEl && settingsBtn) {
+    const clickedInsideSettings = settingsPanelEl.contains(target) || settingsBtn.contains(target);
+    if (!clickedInsideSettings) closeSettingsPanel();
+  }
+
+  if (state.historyOpen && historyPanelEl && historyBtn) {
+    const clickedInsideHistory = historyPanelEl.contains(target) || historyBtn.contains(target);
+    if (!clickedInsideHistory) closeHistoryPanel();
+  }
 });
 
 txtBtn?.addEventListener('click', () => downloadTranscript('txt'));
@@ -265,6 +293,7 @@ historyListEl?.addEventListener('click', async (event) => {
   }
 
   if (action === 'fill-range') {
+    setSelectionMode('custom');
     if (rangeStartInputEl) rangeStartInputEl.value = item.lastRangeStart || '';
     if (rangeEndInputEl) rangeEndInputEl.value = item.lastRangeEnd || '';
     setRangeInfo('Đã nạp khoảng thời gian từ history.');
@@ -277,6 +306,7 @@ async function init() {
   applySettingsToUi();
   renderHistory();
   syncTabUi();
+  syncSelectionModeUi();
   hydrateVideoCardIdle();
   resetSearchUi();
   renderEmptyPreview('Mở một video YouTube rồi bấm refresh hoặc Get subtitles.');
@@ -290,6 +320,12 @@ function setStatus(message) {
 
 function setPreviewMeta(message) {
   if (previewMetaEl) previewMetaEl.textContent = String(message || 'Ready');
+}
+
+function setLineCount(count) {
+  if (lineCountBadgeEl) {
+    lineCountBadgeEl.textContent = `${Number(count) || 0} lines`;
+  }
 }
 
 function setRangeInfo(message) {
@@ -459,11 +495,56 @@ function closeExportMenu() {
   exportMenuBtn.setAttribute('aria-expanded', 'false');
 }
 
+function closeSettingsPanel() {
+  state.settingsOpen = false;
+  settingsPanelEl?.classList.add('hidden');
+  settingsPanelEl?.setAttribute('aria-hidden', 'true');
+  settingsBtn?.setAttribute('aria-expanded', 'false');
+}
+
+function openSettingsPanel() {
+  closeHistoryPanel();
+  state.settingsOpen = true;
+  settingsPanelEl?.classList.remove('hidden');
+  settingsPanelEl?.setAttribute('aria-hidden', 'false');
+  settingsBtn?.setAttribute('aria-expanded', 'true');
+}
+
 function toggleSettingsPanel() {
-  state.settingsOpen = !state.settingsOpen;
-  settingsPanelEl?.classList.toggle('hidden', !state.settingsOpen);
-  settingsPanelEl?.setAttribute('aria-hidden', String(!state.settingsOpen));
-  settingsBtn?.setAttribute('aria-expanded', String(state.settingsOpen));
+  if (state.settingsOpen) closeSettingsPanel();
+  else openSettingsPanel();
+}
+
+function closeHistoryPanel() {
+  state.historyOpen = false;
+  historyPanelEl?.classList.add('hidden');
+  historyPanelEl?.setAttribute('aria-hidden', 'true');
+  historyBtn?.setAttribute('aria-expanded', 'false');
+}
+
+function openHistoryPanel() {
+  closeSettingsPanel();
+  state.historyOpen = true;
+  historyPanelEl?.classList.remove('hidden');
+  historyPanelEl?.setAttribute('aria-hidden', 'false');
+  historyBtn?.setAttribute('aria-expanded', 'true');
+}
+
+function toggleHistoryPanel() {
+  if (state.historyOpen) closeHistoryPanel();
+  else openHistoryPanel();
+}
+
+function setSelectionMode(mode) {
+  state.selectionMode = mode === 'custom' ? 'custom' : 'full';
+  syncSelectionModeUi();
+}
+
+function syncSelectionModeUi() {
+  const isCustom = state.selectionMode === 'custom';
+  selectionModeFullBtn?.classList.toggle('is-active', !isCustom);
+  selectionModeCustomBtn?.classList.toggle('is-active', isCustom);
+  selectionCustomFieldsEl?.classList.toggle('hidden', !isCustom);
 }
 
 function syncTabUi() {
@@ -576,6 +657,13 @@ function renderHistory() {
   if (historyCountEl) historyCountEl.textContent = `${state.history.length} items`;
 }
 
+async function clearHistory() {
+  state.history = [];
+  await saveHistory();
+  renderHistory();
+  setStatus('Đã xoá lịch sử gần đây.');
+}
+
 async function pushHistoryItem(partial = {}) {
   const item = {
     videoId: state.videoId || '',
@@ -686,6 +774,7 @@ function hydrateVideoCardIdle() {
   if (videoTitleEl) videoTitleEl.textContent = 'Mở một video YouTube để bắt đầu';
   if (channelNameEl) channelNameEl.textContent = 'Extension sẽ đọc video đang mở trong tab hiện tại';
   if (trackMetaEl) trackMetaEl.textContent = 'Track gốc: -';
+  setLineCount(0);
 
   if (videoThumbEl) {
     videoThumbEl.removeAttribute('src');
@@ -767,6 +856,7 @@ function updateSubtitleBadge() {
 
 function renderEmptyPreview(message) {
   if (!transcriptPreviewEl) return;
+  setLineCount(0);
   transcriptPreviewEl.classList.add('empty');
   transcriptPreviewEl.innerHTML = `<div class="empty-state"><p>${escapeHtml(message || 'Chưa có dữ liệu.')}</p></div>`;
   if (previewTextareaEl) previewTextareaEl.value = '';
@@ -1248,6 +1338,7 @@ function renderFromRawCues() {
   if (!finalCues.length) {
     state.transcript = null;
     setActionsEnabled(false);
+    setLineCount(0);
     renderEmptyPreview('Không còn subtitle nào sau khi làm sạch.');
     setStatus('Không có phụ đề nào có thể hiển thị sau khi làm sạch.');
     return;
@@ -1293,11 +1384,13 @@ function renderTranscriptPreview() {
   if (!transcriptPreviewEl) return;
 
   if (!state.transcript?.cues?.length) {
+    setLineCount(0);
     renderEmptyPreview('Phụ đề sẽ hiện ở đây sau khi tải xong.');
     return;
   }
 
   const cues = state.transcript.cues;
+  setLineCount(cues.length);
   updatePreviewTextarea();
 
   if (state.previewTab === 'srt') {
@@ -1549,6 +1642,7 @@ async function copyByMode(mode) {
   }
 
   await navigator.clipboard.writeText(content);
+  closeExportMenu();
   setStatus(`Đã sao chép ${label}.`);
 }
 
@@ -1560,6 +1654,7 @@ async function copyCurrentView() {
 
   const content = previewTextareaEl?.value || state.transcript.txt;
   await navigator.clipboard.writeText(content);
+  closeExportMenu();
   setStatus('Đã sao chép nội dung hiện tại.');
 }
 
@@ -1599,6 +1694,8 @@ async function downloadTranscript(type) {
 }
 
 function getSelectedRangeCues() {
+  setSelectionMode('custom');
+
   if (!state.transcript?.cues?.length) {
     setRangeInfo('Chưa có transcript để cắt đoạn.');
     return null;
