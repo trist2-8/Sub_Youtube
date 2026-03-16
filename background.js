@@ -1,5 +1,5 @@
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('YT Subtitle Grabber v3 installed');
+  console.log('Subtitle Grabber v4.1.0 installed');
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -8,7 +8,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'DOWNLOAD_TEXT') {
-    const filename = sanitizeFilename(message.filename || 'youtube-subtitles.txt');
+    const filename = sanitizeFilename(message.filename || 'subtitle-grabber.txt');
     const content = typeof message.content === 'string' ? message.content : '';
     const mime = message.mime || 'text/plain;charset=utf-8';
     const url = `data:${mime},${encodeURIComponent(content)}`;
@@ -31,6 +31,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'OPEN_PINNED_WINDOW') {
+    const tabId = Number(message.tabId);
+    const url = chrome.runtime.getURL(`pinned.html${Number.isFinite(tabId) && tabId > 0 ? `?tabId=${tabId}` : ''}`);
+
+    chrome.windows.create(
+      {
+        url,
+        type: 'popup',
+        width: 520,
+        height: 320,
+        focused: true,
+      },
+      (createdWindow) => {
+        if (chrome.runtime.lastError) {
+          sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+          return;
+        }
+        sendResponse({ ok: true, windowId: createdWindow?.id || null });
+      }
+    );
+
+    return true;
+  }
+
   if (message.type === 'PING') {
     sendResponse({ ok: true });
     return false;
@@ -41,10 +65,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 function sanitizeFilename(name) {
   return (
-    String(name || 'youtube-subtitles')
+    String(name || 'subtitle-grabber')
       .replace(/[\\/:*?"<>|]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
-      .slice(0, 150) || 'youtube-subtitles'
+      .slice(0, 150) || 'subtitle-grabber'
   );
 }

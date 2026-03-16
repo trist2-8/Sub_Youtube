@@ -1,28 +1,33 @@
 {
   "manifest_version": 3,
-  "name": "YT Subtitle Grabber",
-  "version": "2.1.5",
-  "description": "Ưu tiên phụ đề gốc theo video, đổi ngôn ngữ ổn định hơn, hỗ trợ song ngữ, export và ghi nhớ tùy chọn.",
+  "name": "Subtitle Grabber",
+  "version": "4.1.0",
+  "description": "YouTube + Netflix subtitle extractor with safer pinned window, improved YouTube live sync, and Netflix live-capture fallback.",
   "minimum_chrome_version": "114",
   "permissions": [
     "activeTab",
     "downloads",
-    "tabs",
     "scripting",
-    "storage"
+    "storage",
+    "tabs"
   ],
   "host_permissions": [
-    "https://www.youtube.com/*",
     "https://m.youtube.com/*",
-    "https://music.youtube.com/*"
+    "https://music.youtube.com/*",
+    "https://netflix.com/*",
+    "https://www.netflix.com/*",
+    "https://www.youtube.com/*"
   ],
   "action": {
-    "default_title": "YT Subtitle Grabber",
+    "default_title": "Subtitle Grabber",
     "default_popup": "popup.html"
   },
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
   }
 }

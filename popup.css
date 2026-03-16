@@ -972,3 +972,135 @@ input:disabled {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+
+.transcript-line.is-clickable {
+  cursor: pointer;
+}
+
+.transcript-line.is-live-active {
+  border-radius: 14px;
+  padding-left: 8px;
+  padding-right: 8px;
+  background: rgba(124, 140, 255, 0.14);
+  outline: 1px solid rgba(124, 140, 255, 0.34);
+}
+
+.setting-box-range input[type="range"] {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.pinned-card {
+  display: none;
+  min-height: calc(100vh - 120px);
+}
+
+.pinned-head {
+  align-items: flex-start;
+}
+
+.pinned-track-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.pinned-track-pill {
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+}
+
+.pinned-track-pill span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.pinned-track-pill strong {
+  display: block;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.pinned-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.pinned-pane {
+  min-height: 380px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+  overflow: hidden;
+}
+
+.pinned-pane-head {
+  padding: 14px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-soft);
+  border-bottom: 1px solid var(--border);
+}
+
+.pinned-pane-body {
+  flex: 1;
+  padding: 20px 18px;
+  font-size: 28px;
+  line-height: 1.45;
+  font-weight: 600;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
+
+.pinned-footer-row {
+  margin-top: 14px;
+}
+
+body.pinned-mode,
+body.pinned-mode html {
+  width: 100%;
+  min-width: 100%;
+  max-width: 100%;
+  height: 100vh;
+  min-height: 100vh;
+}
+
+body.pinned-mode .app-shell,
+body.pinned-mode .app-frame {
+  border-radius: 0;
+  width: 100%;
+  height: 100vh;
+  min-height: 100vh;
+}
+
+body.pinned-mode .app-body {
+  inset: 68px 0 0 0;
+  padding-bottom: 18px;
+}
+
+body.pinned-mode .hero-card,
+body.pinned-mode .workspace-card,
+body.pinned-mode .selection-card,
+body.pinned-mode .footer-bar,
+body.pinned-mode #historyBtn,
+body.pinned-mode #settingsBtn,
+body.pinned-mode #pinBtn {
+  display: none !important;
+}
+
+body.pinned-mode .pinned-card {
+  display: block;
+}

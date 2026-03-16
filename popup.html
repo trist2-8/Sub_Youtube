@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>YT Subtitle Grabber</title>
+    <title>Subtitle Grabber</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
@@ -20,7 +20,7 @@
               </svg>
             </div>
             <div class="brand-copy">
-              <h1>YT Subtitle Grabber</h1>
+              <h1>Subtitle Grabber</h1>
               <p>Extract • Review • Export</p>
             </div>
           </div>
@@ -45,6 +45,14 @@
                 <path d="M3 12a9 9 0 1 0 3-6.7" />
                 <path d="M3 4v5h5" />
                 <path d="M12 7v5l3 2" />
+              </svg>
+            </button>
+
+            <button id="pinBtn" class="icon-btn" type="button" title="Ghim cửa sổ live subtitle">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m12 17-4 4v-7" />
+                <path d="M14 3 9 8l7 7 5-5z" />
+                <path d="m8 8 8 8" />
               </svg>
             </button>
 
@@ -227,6 +235,13 @@
           </div>
 
           <div class="settings-groups">
+
+            <div class="setting-box setting-box-range">
+              <label for="youtubeLeadRange">YouTube lead compensation <span id="youtubeLeadValue">180 ms</span></label>
+              <input id="youtubeLeadRange" type="range" min="0" max="500" step="10" value="180" />
+              <small class="summary-note">Đẩy highlight đi sớm hơn một chút để bám giọng đọc sát hơn.</small>
+            </div>
+
             <div class="setting-box">
               <label for="bilingualLayoutSelect">Bilingual layout</label>
               <select id="bilingualLayoutSelect">
@@ -276,6 +291,18 @@
                 </div>
                 <span class="switch">
                   <input id="autoFetchOnChangeCheckbox" type="checkbox" checked />
+                  <span class="slider"></span>
+                </span>
+              </label>
+
+
+              <label class="toggle-row" for="autoScrollLiveCheckbox">
+                <div>
+                  <span>Tự cuộn theo câu đang phát</span>
+                  <small>Bật để transcript tự bám theo cue active</small>
+                </div>
+                <span class="switch">
+                  <input id="autoScrollLiveCheckbox" type="checkbox" checked />
                   <span class="slider"></span>
                 </span>
               </label>
