@@ -3774,3 +3774,200 @@ window.addEventListener('beforeunload', () => {
     __v461ObserverTimer = null;
   }
 });
+
+
+/* ===== Enhancement v4.7.0: per-site profile memory ===== */
+const siteProfileChipElV470 = document.getElementById('siteProfileChip');
+const siteProfileTitleElV470 = document.getElementById('siteProfileTitle');
+const siteProfileMetaElV470 = document.getElementById('siteProfileMeta');
+const resetSiteProfileBtnElV470 = document.getElementById('resetSiteProfileBtn');
+
+state.siteProfileBaseV470 = state.siteProfileBaseV470 || null;
+state.lastAppliedSiteProfileV470 = state.lastAppliedSiteProfileV470 || '';
+
+function clampNumberV470(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(min, Math.min(max, number));
+}
+
+function buildSiteProfileV470(source = state.settings) {
+  return {
+    outputMode: ['original', 'translated', 'bilingual'].includes(source?.outputMode) ? source.outputMode : 'original',
+    preferredTargetLanguage: typeof source?.preferredTargetLanguage === 'string' ? source.preferredTargetLanguage : ORIGINAL_LANGUAGE_SENTINEL,
+    showTimestampInText: Boolean(source?.showTimestampInText),
+    bilingualLayout: source?.bilingualLayout === 'split' ? 'split' : 'stacked',
+    preferOriginalTrack: source?.preferOriginalTrack !== false,
+    autoFetchOnSelectionChange: source?.autoFetchOnSelectionChange !== false,
+    autoScrollLive: source?.autoScrollLive !== false,
+    syncOffsetMs: clampNumberV470(source?.syncOffsetMs, -500, 500, 0),
+    syncProfile: ['accurate', 'smooth', 'aggressive'].includes(source?.syncProfile) ? source.syncProfile : 'smooth',
+    youtubeLeadMs: clampNumberV470(source?.youtubeLeadMs, 0, 1200, 320),
+    dedupeRepeats: source?.dedupeRepeats !== false,
+    mergeShortCues: source?.mergeShortCues !== false,
+  };
+}
+
+function buildPlatformDefaultProfileV470(platform, baseProfile = null) {
+  const base = baseProfile || buildSiteProfileV470(state.siteProfileBaseV470 || state.settings);
+  if (platform === PLATFORM_NETFLIX) {
+    return {
+      ...base,
+      preferredTargetLanguage: ORIGINAL_LANGUAGE_SENTINEL,
+      outputMode: base.outputMode === 'translated' ? 'original' : base.outputMode,
+      syncProfile: 'accurate',
+      youtubeLeadMs: 0,
+    };
+  }
+  return {
+    ...base,
+    syncProfile: ['accurate', 'smooth', 'aggressive'].includes(base.syncProfile) ? base.syncProfile : 'smooth',
+    youtubeLeadMs: clampNumberV470(base.youtubeLeadMs, 0, 1200, 320),
+  };
+}
+
+function ensureSiteProfilesV470() {
+  const baseProfile = buildSiteProfileV470(state.siteProfileBaseV470 || state.settings);
+  const current = state.settings?.siteProfiles && typeof state.settings.siteProfiles === 'object' ? state.settings.siteProfiles : {};
+  state.settings.siteProfiles = {
+    youtube: { ...buildPlatformDefaultProfileV470(PLATFORM_YOUTUBE, baseProfile), ...(current.youtube || {}) },
+    netflix: { ...buildPlatformDefaultProfileV470(PLATFORM_NETFLIX, baseProfile), ...(current.netflix || {}) },
+  };
+  state.settings.siteProfiles.youtube = buildPlatformDefaultProfileV470(PLATFORM_YOUTUBE, state.settings.siteProfiles.youtube);
+  state.settings.siteProfiles.netflix = buildPlatformDefaultProfileV470(PLATFORM_NETFLIX, state.settings.siteProfiles.netflix);
+}
+
+function syncCurrentSiteProfileFromStateV470() {
+  if (!state.currentPlatform || ![PLATFORM_YOUTUBE, PLATFORM_NETFLIX].includes(state.currentPlatform)) return;
+  ensureSiteProfilesV470();
+  state.settings.siteProfiles[state.currentPlatform] = buildSiteProfileV470(state.settings);
+}
+
+function renderSiteProfileUiV470(platform = state.currentPlatform || '') {
+  const label = platform ? platformLabel(platform) : 'Auto';
+  const profile = platform && state.settings?.siteProfiles ? state.settings.siteProfiles[platform] : null;
+  if (siteProfileChipElV470) {
+    siteProfileChipElV470.textContent = platform ? `Profile memory · ${label}` : 'Profile memory · Auto';
+  }
+  if (siteProfileTitleElV470) {
+    siteProfileTitleElV470.textContent = platform ? `${label} profile active` : 'Auto profile';
+  }
+  if (siteProfileMetaElV470) {
+    if (profile) {
+      const modeLabel = { original: 'Original', translated: 'Translated', bilingual: 'Bilingual' }[profile.outputMode] || 'Original';
+      const leadLabel = platform === PLATFORM_YOUTUBE ? ` · lead ${profile.youtubeLeadMs} ms` : '';
+      siteProfileMetaElV470.textContent = `Mode ${modeLabel} · ${profile.syncProfile} · offset ${profile.syncOffsetMs} ms${leadLabel}. Các setting chính sẽ được nhớ riêng cho ${label}.`;
+    } else {
+      siteProfileMetaElV470.textContent = 'YouTube và Netflix sẽ nhớ riêng output mode, sync profile, offset, lead và một số tuỳ chọn hiển thị.';
+    }
+  }
+  if (resetSiteProfileBtnElV470) {
+    resetSiteProfileBtnElV470.disabled = !platform;
+  }
+}
+
+function applySiteProfileV470(platform, { silent = false } = {}) {
+  if (!platform || ![PLATFORM_YOUTUBE, PLATFORM_NETFLIX].includes(platform)) {
+    renderSiteProfileUiV470('');
+    return;
+  }
+  ensureSiteProfilesV470();
+  const profile = state.settings.siteProfiles[platform] || buildPlatformDefaultProfileV470(platform);
+  Object.assign(state.settings, profile);
+  state.selectedTargetLanguage = state.settings.preferredTargetLanguage || ORIGINAL_LANGUAGE_SENTINEL;
+  state.showTimestampInText = Boolean(state.settings.showTimestampInText);
+  state.bilingualLayout = state.settings.bilingualLayout || 'stacked';
+  state.lastAppliedSiteProfileV470 = platform;
+  applySettingsToUi();
+  renderSiteProfileUiV470(platform);
+  if (!silent && typeof addSessionLogEntryV461 === 'function') {
+    addSessionLogEntryV461('site-profile', `Áp dụng profile riêng cho ${platformLabel(platform)}.`);
+  }
+}
+
+async function resetCurrentSiteProfileV470() {
+  const platform = state.currentPlatform || '';
+  if (!platform || ![PLATFORM_YOUTUBE, PLATFORM_NETFLIX].includes(platform)) return;
+  ensureSiteProfilesV470();
+  const baseProfile = buildSiteProfileV470(state.siteProfileBaseV470 || state.settings);
+  state.settings.siteProfiles[platform] = buildPlatformDefaultProfileV470(platform, baseProfile);
+  applySiteProfileV470(platform, { silent: true });
+  await saveSettings();
+  rebuildTargetLanguageOptions();
+  updateSyncOffsetUi();
+  renderSiteProfileUiV470(platform);
+  if (state.rawSourceCues?.length) {
+    await refreshRenderingAfterSettingChange();
+  }
+  if (typeof renderDiagnosticsPanelV461 === 'function') renderDiagnosticsPanelV461({ forceRefreshStamp: true });
+  if (typeof addSessionLogEntryV461 === 'function') addSessionLogEntryV461('site-profile', `Đã reset profile của ${platformLabel(platform)}.`);
+  setStatus(`Đã reset site profile của ${platformLabel(platform)}.`);
+}
+
+resetSiteProfileBtnElV470?.addEventListener('click', () => {
+  resetCurrentSiteProfileV470().catch((error) => {
+    setStatus(error?.message || 'Không reset được site profile.');
+  });
+});
+
+const __v470BaseLoadSettings = loadSettings;
+loadSettings = async function (...args) {
+  await __v470BaseLoadSettings.apply(this, args);
+  state.siteProfileBaseV470 = buildSiteProfileV470(state.settings);
+  ensureSiteProfilesV470();
+};
+
+const __v470BaseSaveSettings = saveSettings;
+saveSettings = async function (...args) {
+  syncCurrentSiteProfileFromStateV470();
+  return __v470BaseSaveSettings.apply(this, args);
+};
+
+const __v470BaseLoadTracks = loadTracks;
+loadTracks = async function (...args) {
+  try {
+    const tab = state.tab || await getActiveTab();
+    const detectedPlatform = detectPlatformFromUrl(tab?.url || '');
+    if (detectedPlatform && detectedPlatform !== state.lastAppliedSiteProfileV470) {
+      applySiteProfileV470(detectedPlatform, { silent: true });
+    } else {
+      renderSiteProfileUiV470(detectedPlatform || state.currentPlatform || '');
+    }
+  } catch {
+    renderSiteProfileUiV470(state.currentPlatform || '');
+  }
+  const result = await __v470BaseLoadTracks.apply(this, args);
+  renderSiteProfileUiV470(state.currentPlatform || '');
+  return result;
+};
+
+const __v470BaseBuildDiagnosticsObjectV461 = buildDiagnosticsObjectV461;
+buildDiagnosticsObjectV461 = function (...args) {
+  const report = __v470BaseBuildDiagnosticsObjectV461.apply(this, args);
+  report.siteProfile = {
+    currentPlatform: state.currentPlatform || null,
+    active: state.currentPlatform && state.settings?.siteProfiles ? cloneData(state.settings.siteProfiles[state.currentPlatform]) : null,
+    youtube: state.settings?.siteProfiles ? cloneData(state.settings.siteProfiles.youtube) : null,
+    netflix: state.settings?.siteProfiles ? cloneData(state.settings.siteProfiles.netflix) : null,
+  };
+  return report;
+};
+
+const __v470BaseBuildDiagnosticsTextV461 = buildDiagnosticsTextV461;
+buildDiagnosticsTextV461 = function (...args) {
+  const baseText = __v470BaseBuildDiagnosticsTextV461.apply(this, args);
+  const report = buildDiagnosticsObjectV461();
+  const active = report.siteProfile?.active || null;
+  const summary = active
+    ? `Site profile: ${platformLabel(report.siteProfile.currentPlatform)} · mode=${active.outputMode} · profile=${active.syncProfile} · offset=${active.syncOffsetMs} · lead=${active.youtubeLeadMs}`
+    : 'Site profile: -';
+  return `${baseText}
+${summary}`;
+};
+
+const __v470BaseApplySettingsToUi = applySettingsToUi;
+applySettingsToUi = function (...args) {
+  const result = __v470BaseApplySettingsToUi.apply(this, args);
+  renderSiteProfileUiV470(state.currentPlatform || state.lastAppliedSiteProfileV470 || '');
+  return result;
+};

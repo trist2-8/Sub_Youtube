@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Subtitle Grabber",
-  "version": "4.6.1",
-  "description": "Merge-safe 4.6.1 release: giữ lõi YouTube + Netflix + pin ổn định, thêm diagnostics, sync profile và YouTube lead.",
+  "version": "4.7.0",
+  "description": "Per-site profile memory release: giữ lõi YouTube + Netflix + pin, thêm nhớ riêng settings cho từng nền tảng và diagnostics rõ hơn.",
   "minimum_chrome_version": "114",
   "permissions": [
     "activeTab",

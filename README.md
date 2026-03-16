@@ -23,3 +23,10 @@ Ban nay tap trung sua mot diem con loi cuoi o popup chinh: Netflix pin da bat du
 - Bổ sung diagnostics bundle và session export an toàn
 - Thêm sync profile và YouTube lead trong Settings
 - Không đụng vào luồng fetch subtitle cũ để tránh làm mất chức năng hiện có
+
+
+## 4.7.0
+- Thêm per-site profile memory cho YouTube và Netflix.
+- Nhớ riêng sync profile, sync offset, YouTube lead, output mode, target language, auto-scroll, layout và timestamp theo từng nền tảng.
+- Thêm nút reset profile của nền tảng hiện tại trong Settings.
+- Giữ nguyên lõi fetch subtitle, pin window và luồng export đang ổn.

@@ -1,5 +1,5 @@
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('Subtitle Grabber v4.3.0 installed');
+  console.log('Subtitle Grabber v4.7.0 installed');
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

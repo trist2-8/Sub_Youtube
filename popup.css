@@ -1082,3 +1082,31 @@ input:disabled {
   font-size: 10px;
   line-height: 1.5;
 }
+
+
+.site-profile-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.site-profile-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+#siteProfileTitle {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+#siteProfileMeta {
+  margin: 0;
+}
+
+#siteProfileChip {
+  border-color: rgba(124, 140, 255, 0.26);
+}
