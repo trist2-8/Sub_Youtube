@@ -48,11 +48,18 @@
               </svg>
             </button>
 
-            <button id="pinBtn" class="icon-btn" type="button" title="Ghim cửa sổ live subtitle">
+            <button
+              id="pinBtn"
+              class="icon-btn"
+              type="button"
+              title="Pin"
+            >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <path d="m12 17-4 4v-7" />
-                <path d="M14 3 9 8l7 7 5-5z" />
-                <path d="m8 8 8 8" />
+                <path d="M14 4 20 10" />
+                <path d="M4 20l6-6" />
+                <path d="M8 12l4 4" />
+                <path d="M16 2l6 6" />
+                <path d="M12 8l4 4" />
               </svg>
             </button>
 
@@ -85,15 +92,15 @@
                   <span id="lineCountBadge" class="status-pill">0 lines</span>
                 </div>
 
-                <h2 id="videoTitle">Mở một video YouTube để bắt đầu</h2>
+                <h2 id="videoTitle">Mở một video YouTube hoặc Netflix để bắt đầu</h2>
                 <p id="channelName" class="channel-name">Extension sẽ đọc video đang mở trong tab hiện tại</p>
                 <p id="trackMeta" class="track-meta">Track gốc: -</p>
               </div>
             </div>
 
             <div class="hero-chip-row">
-              <span class="hero-chip">Original first</span>
-              <span class="hero-chip">Bilingual ready</span>
+              <span class="hero-chip">Low-latency sync</span>
+              <span class="hero-chip">YouTube + Netflix</span>
               <span class="hero-chip">Range export</span>
             </div>
 
@@ -123,7 +130,7 @@
             </div>
 
             <div class="hero-footer">
-              <p id="status" class="status-line">Mở một video YouTube rồi bấm Get subtitles hoặc refresh.</p>
+              <p id="status" class="status-line">Mở một video YouTube hoặc Netflix rồi bấm Get subtitles hoặc refresh.</p>
               <button id="getSubtitlesBtn" class="primary-btn" type="button">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M12 3v18" />
@@ -156,6 +163,13 @@
             </div>
 
             <p id="searchInfo" class="search-info">Chưa tìm kiếm.</p>
+
+            <div class="live-sync-bar">
+              <span id="playbackStatusChip" class="panel-chip">Sync idle</span>
+              <span id="playbackTimeChip" class="panel-chip">00:00:00,000</span>
+              <span id="activeCueChip" class="panel-chip">Cue -</span>
+              <span class="panel-chip">Click line to seek</span>
+            </div>
 
             <div class="tabs-wrap top-tabs" role="tablist" aria-label="Transcript modes">
               <button class="tab-btn is-active" type="button" data-tab="text" role="tab" aria-selected="true">Text</button>
@@ -235,13 +249,6 @@
           </div>
 
           <div class="settings-groups">
-
-            <div class="setting-box setting-box-range">
-              <label for="youtubeLeadRange">YouTube lead compensation <span id="youtubeLeadValue">180 ms</span></label>
-              <input id="youtubeLeadRange" type="range" min="0" max="500" step="10" value="180" />
-              <small class="summary-note">Đẩy highlight đi sớm hơn một chút để bám giọng đọc sát hơn.</small>
-            </div>
-
             <div class="setting-box">
               <label for="bilingualLayoutSelect">Bilingual layout</label>
               <select id="bilingualLayoutSelect">
@@ -295,11 +302,10 @@
                 </span>
               </label>
 
-
               <label class="toggle-row" for="autoScrollLiveCheckbox">
                 <div>
                   <span>Tự cuộn theo câu đang phát</span>
-                  <small>Bật để transcript tự bám theo cue active</small>
+                  <small>Giúp popup bám theo subtitle hiện tại khi video đang chạy</small>
                 </div>
                 <span class="switch">
                   <input id="autoScrollLiveCheckbox" type="checkbox" checked />
@@ -317,6 +323,17 @@
                   <span class="slider"></span>
                 </span>
               </label>
+            </div>
+
+            <div class="setting-box">
+              <label for="syncOffsetRange">Playback sync offset</label>
+              <input id="syncOffsetRange" type="range" min="-500" max="500" step="10" value="0" />
+              <div class="range-inline-meta">
+                <span>Delay</span>
+                <strong id="syncOffsetValue">0 ms</strong>
+                <span>Advance</span>
+              </div>
+              <p class="setting-help">Nếu dòng active hơi sớm hoặc muộn, chỉnh offset theo mili giây.</p>
             </div>
           </div>
         </section>

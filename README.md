@@ -1,22 +1,18 @@
-# Subtitle Grabber
+# Subtitle Grabber 4.3.0
 
-Chrome extension để lấy, xem và xuất subtitle từ YouTube, đồng thời có nhánh fallback cho Netflix.
+Ban nay tap trung sua lai cua so ghim de khong lam anh huong toi popup chinh va gia co them fallback cho YouTube pin.
 
-## Bản 4.2.0
-- sửa lỗi pin YouTube bị hỏng khi `response.json()` gặp timedtext rỗng hoặc không phải JSON hợp lệ
-- thiết kế lại cửa sổ ghim theo kiểu gọn hơn, tập trung vào câu hiện tại + review log đang chạy
-- review log của pin sẽ giữ lại toàn bộ các dòng live capture Netflix thay vì hiện rồi mất
-- pin tự chạy độc lập, có auto retry nhẹ khi tab đổi hoặc lúc chưa lấy được subtitle
-- giảm kích thước cửa sổ ghim để tiện theo dõi khi đang xem video
+## Diem moi
 
-## Cách dùng
-1. Mở `chrome://extensions`
-2. Bật Developer mode
-3. Chọn **Load unpacked** và trỏ tới thư mục này
-4. Mở video YouTube hoặc Netflix rồi dùng popup extension
-5. Bấm nút ghim để mở cửa sổ theo dõi subtitle riêng
+- Pin window dung file rieng `pinned.html` + `pinned.js`, khong dung chung popup chinh
+- Pin YouTube uu tien doc full timedtext, neu timedtext khong parse duoc se tu chuyen sang live caption overlay
+- Pin Netflix van giu luong full track neu co, neu khong se live capture subtitle dang hien thi
+- Them **review log** luu lai qua trinh subtitle thay doi theo thoi gian
+- Giam kich thuoc mac dinh cua cua so ghim de de vua xem video vua theo doi subtitle hon
+- Tang do ben cua YouTube pin bang fetch timedtext theo nhieu bien the `json3`, `srv3`, `vtt`, `ttml`
 
-## Ghi chú
-- Netflix không phải title nào cũng expose full subtitle track cho extension.
-- Khi Netflix không lộ full track, extension sẽ thử live capture subtitle đang hiển thị trên màn hình và giữ review log trong cửa sổ ghim.
-- Với YouTube, pin sẽ ưu tiên timedtext `json3`, sau đó fallback sang `vtt` hoặc XML để tránh lỗi parse JSON.
+## Ghi chu thuc te
+
+- Popup chinh van giu luong rieng, pin chay doc lap
+- YouTube pin da co fallback overlay nen ngay ca khi timedtext loi, ban van theo doi duoc subtitle dang hien tren video
+- Netflix live capture se duoc luu lai trong review log, khong con hien roi mat ngay nua
