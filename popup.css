@@ -1041,3 +1041,44 @@ input:disabled {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+
+.diagnostics-card {
+  margin-top: 10px;
+}
+
+.diagnostics-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.diagnostic-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.diagnostic-actions .mini-btn {
+  width: 100%;
+}
+
+#diagnosticMeta {
+  margin: 0;
+}
+
+#diagnosticPreview {
+  min-height: 180px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(7, 10, 14, 0.46);
+}
+
+.field-help {
+  color: var(--text-soft);
+  font-size: 10px;
+  line-height: 1.5;
+}

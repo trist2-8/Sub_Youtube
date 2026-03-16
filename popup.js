@@ -3329,3 +3329,448 @@ async function pageFetchTrack(track) {
     debug,
   };
 }
+
+/* ===== Enhancement v4.6.1: merge-safe diagnostics + sync profiles ===== */
+const syncProfileSelectElV461 = document.getElementById('syncProfileSelect');
+const youtubeLeadInputElV461 = document.getElementById('youtubeLeadInput');
+const liveSyncProfileChipElV461 = document.getElementById('liveSyncProfileChip');
+const liveSyncHintElV461 = document.getElementById('liveSyncHint');
+const refreshDiagnosticsBtnV461 = document.getElementById('refreshDiagnosticsBtn');
+const copyDiagnosticsBtnV461 = document.getElementById('copyDiagnosticsBtn');
+const exportDiagnosticsBtnV461 = document.getElementById('exportDiagnosticsBtn');
+const exportSessionLogBtnV461 = document.getElementById('exportSessionLogBtn');
+const diagnosticMetaElV461 = document.getElementById('diagnosticMeta');
+const diagnosticPreviewElV461 = document.getElementById('diagnosticPreview');
+const V461_SESSION_LOG_LIMIT = 250;
+
+state.sessionLogV461 = Array.isArray(state.sessionLogV461) ? state.sessionLogV461 : [];
+state.diagnosticsRefreshedAtV461 = state.diagnosticsRefreshedAtV461 || '';
+state.settings.syncProfile = state.settings.syncProfile || 'smooth';
+state.settings.youtubeLeadMs = Number.isFinite(Number(state.settings.youtubeLeadMs)) ? Math.max(0, Math.min(1200, Number(state.settings.youtubeLeadMs))) : 320;
+
+const __v461BaseSetStatus = setStatus;
+const __v461BaseSetDebug = setDebug;
+const __v461BaseRenderFromRawCues = renderFromRawCues;
+const __v461BaseRenderEmptyPreview = renderEmptyPreview;
+const __v461BaseLoadTracks = loadTracks;
+const __v461BaseLoadSelectedTrack = loadSelectedTrack;
+const __v461BaseHydrateVideoCard = hydrateVideoCard;
+const __v461BaseApplySettingsToUi = applySettingsToUi;
+const __v461BaseLoadSettings = loadSettings;
+const __v461BaseGetEstimatedPlaybackTimeMs = getEstimatedPlaybackTimeMs;
+const __v461ObserverState = {
+  lastCueSignature: '',
+  lastTrackSignature: '',
+  lastPlatformUrlSignature: '',
+};
+let __v461ObserverTimer = null;
+
+loadSettings = async function (...args) {
+  await __v461BaseLoadSettings(...args);
+  state.settings.syncProfile = ['accurate', 'smooth', 'aggressive'].includes(state.settings.syncProfile) ? state.settings.syncProfile : 'smooth';
+  state.settings.youtubeLeadMs = Number.isFinite(Number(state.settings.youtubeLeadMs)) ? Math.max(0, Math.min(1200, Number(state.settings.youtubeLeadMs))) : 320;
+};
+
+applySettingsToUi = function (...args) {
+  __v461BaseApplySettingsToUi(...args);
+  if (syncProfileSelectElV461) syncProfileSelectElV461.value = state.settings.syncProfile || 'smooth';
+  if (youtubeLeadInputElV461) youtubeLeadInputElV461.value = String(Number(state.settings.youtubeLeadMs) || 320);
+  renderSyncMetaV461();
+};
+
+setStatus = function (message) {
+  __v461BaseSetStatus(message);
+  addSessionLogEntryV461('status', message);
+  renderDiagnosticsPanelV461();
+};
+
+setDebug = function (lines) {
+  __v461BaseSetDebug(lines);
+  renderDiagnosticsPanelV461();
+};
+
+renderEmptyPreview = function (message) {
+  __v461BaseRenderEmptyPreview(message);
+  addSessionLogEntryV461('preview', message);
+  renderSyncMetaV461();
+  renderDiagnosticsPanelV461();
+};
+
+renderFromRawCues = function (...args) {
+  const result = __v461BaseRenderFromRawCues(...args);
+  addTranscriptSnapshotLogV461();
+  renderSyncMetaV461();
+  renderDiagnosticsPanelV461();
+  return result;
+};
+
+hydrateVideoCard = function (...args) {
+  const result = __v461BaseHydrateVideoCard(...args);
+  observeDiagnosticsStateV461({ force: true });
+  renderSyncMetaV461();
+  return result;
+};
+
+loadTracks = async function (...args) {
+  addSessionLogEntryV461('fetch', 'Bắt đầu đọc metadata và danh sách track subtitle.');
+  try {
+    return await __v461BaseLoadTracks(...args);
+  } finally {
+    observeDiagnosticsStateV461({ force: true });
+    renderSyncMetaV461();
+    renderDiagnosticsPanelV461();
+  }
+};
+
+loadSelectedTrack = async function (...args) {
+  addSessionLogEntryV461('fetch', 'Bắt đầu tải subtitle theo lựa chọn hiện tại.');
+  try {
+    return await __v461BaseLoadSelectedTrack(...args);
+  } finally {
+    observeDiagnosticsStateV461({ force: true });
+    renderSyncMetaV461();
+    renderDiagnosticsPanelV461();
+  }
+};
+
+getEstimatedPlaybackTimeMs = function (...args) {
+  let value = __v461BaseGetEstimatedPlaybackTimeMs(...args);
+  if (state.currentPlatform === PLATFORM_YOUTUBE) {
+    value += Number(state.settings.youtubeLeadMs) || 0;
+  }
+  return Math.max(0, Math.round(value));
+};
+
+resolveCueIndexByTime = function (timeMs) {
+  const cues = state.transcript?.cues;
+  if (!Array.isArray(cues) || !cues.length) return -1;
+  const config = getSyncProfileConfigV461();
+  const adjustedTimeMs = Math.max(0, Math.round(Number(timeMs) || 0) + (Number(state.settings.syncOffsetMs) || 0));
+  const activeIndex = Number(state.activeCueIndex);
+  const withinCue = (cue) => adjustedTimeMs >= cue.startMs - config.preRollMs && adjustedTimeMs <= cue.endMs + config.postRollMs;
+
+  if (Number.isInteger(activeIndex) && activeIndex >= 0 && activeIndex < cues.length) {
+    const current = cues[activeIndex];
+    if (current && withinCue(current)) return activeIndex;
+    const nextCue = cues[activeIndex + 1];
+    if (nextCue && withinCue(nextCue)) return activeIndex + 1;
+    const prevCue = cues[activeIndex - 1];
+    if (prevCue && withinCue(prevCue)) return activeIndex - 1;
+  }
+
+  let lo = 0;
+  let hi = cues.length - 1;
+  let candidate = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (cues[mid].startMs <= adjustedTimeMs + config.preRollMs) {
+      candidate = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  if (candidate >= 0 && withinCue(cues[candidate])) return candidate;
+  if (candidate + 1 < cues.length && withinCue(cues[candidate + 1])) return candidate + 1;
+  return -1;
+};
+
+const __v461BaseUpdatePlaybackIndicator = updatePlaybackIndicator;
+updatePlaybackIndicator = function (snapshot) {
+  __v461BaseUpdatePlaybackIndicator(snapshot);
+  renderSyncMetaV461();
+};
+
+syncProfileSelectElV461?.addEventListener('change', async (event) => {
+  const value = ['accurate', 'smooth', 'aggressive'].includes(event.target.value) ? event.target.value : 'smooth';
+  state.settings.syncProfile = value;
+  await saveSettings();
+  syncActiveCueFromPlayback({ scroll: false });
+  renderSyncMetaV461();
+  setStatus(`Đã chuyển sync profile sang ${value}.`);
+});
+
+youtubeLeadInputElV461?.addEventListener('change', async (event) => {
+  const raw = Number(event.target.value);
+  const value = Number.isFinite(raw) ? Math.max(0, Math.min(1200, Math.round(raw))) : 320;
+  event.target.value = String(value);
+  state.settings.youtubeLeadMs = value;
+  await saveSettings();
+  syncActiveCueFromPlayback({ scroll: false });
+  renderSyncMetaV461();
+  setStatus(`Đã cập nhật YouTube lead: ${value} ms.`);
+});
+
+refreshDiagnosticsBtnV461?.addEventListener('click', () => {
+  observeDiagnosticsStateV461({ force: true });
+  renderDiagnosticsPanelV461({ forceRefreshStamp: true });
+  __v461BaseSetStatus('Đã làm mới diagnostics report.');
+});
+
+copyDiagnosticsBtnV461?.addEventListener('click', async () => {
+  try {
+    const text = buildDiagnosticsTextV461({ includeDebug: true, includeSession: true });
+    await navigator.clipboard.writeText(text);
+    __v461BaseSetStatus('Đã copy diagnostics bundle.');
+    addSessionLogEntryV461('diagnostic', 'Đã copy diagnostics bundle vào clipboard.');
+    renderDiagnosticsPanelV461({ forceRefreshStamp: true });
+  } catch (error) {
+    __v461BaseSetStatus(error?.message || 'Không thể copy diagnostics bundle.');
+  }
+});
+
+exportDiagnosticsBtnV461?.addEventListener('click', async () => {
+  try {
+    const payload = JSON.stringify(buildDiagnosticsObjectV461(), null, 2);
+    await downloadDiagnosticsFileV461(`${buildDiagnosticsFileBaseV461()} - diagnostics.json`, payload, 'application/json;charset=utf-8');
+    __v461BaseSetStatus('Đã export diagnostics JSON.');
+    addSessionLogEntryV461('diagnostic', 'Đã export diagnostics JSON.');
+    renderDiagnosticsPanelV461({ forceRefreshStamp: true });
+  } catch (error) {
+    __v461BaseSetStatus(error?.message || 'Không thể export diagnostics JSON.');
+  }
+});
+
+exportSessionLogBtnV461?.addEventListener('click', async () => {
+  try {
+    const entries = state.sessionLogV461 || [];
+    if (!entries.length) {
+      __v461BaseSetStatus('Chưa có session log để export.');
+      return;
+    }
+    const text = buildSessionLogTextV461(entries);
+    await downloadDiagnosticsFileV461(`${buildDiagnosticsFileBaseV461()} - session-log.txt`, text, 'text/plain;charset=utf-8');
+    __v461BaseSetStatus('Đã export session log TXT.');
+    addSessionLogEntryV461('diagnostic', 'Đã export session log TXT.');
+    renderDiagnosticsPanelV461({ forceRefreshStamp: true });
+  } catch (error) {
+    __v461BaseSetStatus(error?.message || 'Không thể export session log.');
+  }
+});
+
+function getSyncProfileConfigV461() {
+  const key = state.settings.syncProfile || 'smooth';
+  if (key === 'accurate') return { preRollMs: 25, postRollMs: 120 };
+  if (key === 'aggressive') return { preRollMs: 85, postRollMs: 70 };
+  return { preRollMs: 45, postRollMs: 100 };
+}
+
+function renderSyncMetaV461() {
+  if (liveSyncProfileChipElV461) {
+    const profileLabel = { accurate: 'Profile Accurate', smooth: 'Profile Smooth', aggressive: 'Profile Aggressive' }[state.settings.syncProfile || 'smooth'] || 'Profile Smooth';
+    liveSyncProfileChipElV461.textContent = profileLabel;
+  }
+  if (liveSyncHintElV461) {
+    const cue = state.transcript?.cues?.[state.activeCueIndex];
+    if (cue?.text) {
+      liveSyncHintElV461.textContent = cue.text.replace(/\s+/g, ' ').slice(0, 160);
+    } else if (state.liveCaptureActive) {
+      liveSyncHintElV461.textContent = 'Live capture đang chạy. Transcript sẽ tự cập nhật khi subtitle đổi dòng.';
+    } else if (state.transcript?.cues?.length) {
+      liveSyncHintElV461.textContent = 'Timeline sync đang chạy. Có thể click vào từng dòng subtitle để tua video.';
+    } else {
+      liveSyncHintElV461.textContent = 'Timeline sync sẽ khởi động sau khi có transcript.';
+    }
+  }
+}
+
+function buildDiagnosticsFileBaseV461() {
+  const title = sanitizeFilename(state.videoTitle || state.tab?.title || 'subtitle-grabber');
+  const platform = state.currentPlatform || 'unknown';
+  return `${title} - ${platform}`;
+}
+
+function buildSessionLogTextV461(entries) {
+  return entries.map((entry) => `[${entry.time}] ${entry.kind.toUpperCase()}: ${entry.message}`).join('\n');
+}
+
+async function downloadDiagnosticsFileV461(filename, content, mimeType) {
+  const blob = new Blob([content], { type: mimeType || 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  try {
+    await chrome.downloads.download({ url, filename, saveAs: true });
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  }
+}
+
+function addSessionLogEntryV461(kind, message) {
+  const clean = String(message || '').trim();
+  if (!clean) return;
+  const signature = `${kind}|${clean}`;
+  const last = state.sessionLogV461[state.sessionLogV461.length - 1];
+  if (last?.signature === signature) return;
+  const now = new Date();
+  state.sessionLogV461.push({
+    kind,
+    message: clean,
+    time: now.toLocaleTimeString('vi-VN', { hour12: false }),
+    iso: now.toISOString(),
+    signature,
+  });
+  if (state.sessionLogV461.length > V461_SESSION_LOG_LIMIT) {
+    state.sessionLogV461 = state.sessionLogV461.slice(-V461_SESSION_LOG_LIMIT);
+  }
+}
+
+function addTranscriptSnapshotLogV461() {
+  const track = state.sourceTracks?.[state.selectedSourceIndex] || {};
+  const count = Number(state.transcript?.cues?.length) || 0;
+  if (!count) return;
+  const sourceLabel = track.effectiveLabel || track.name || track.languageCode || 'source';
+  const strategy = track.fetchStrategy || (state.liveCaptureActive ? 'liveCapture' : 'fullTrack');
+  addSessionLogEntryV461('track', `Đã dựng transcript ${count} cues · ${sourceLabel} · ${strategy}`);
+}
+
+function summarizeTrackV461(track) {
+  if (!track) return null;
+  return {
+    label: track.effectiveLabel || track.name || track.languageCode || '',
+    languageCode: track.languageCode || '',
+    kind: track.kind || '',
+    fetchStrategy: track.fetchStrategy || '',
+    isTranslation: Boolean(track.isTranslation),
+    sourceLanguageCode: track.sourceLanguageCode || '',
+    targetLanguageCode: track.targetLanguageCode || '',
+    baseUrl: track.baseUrl ? 'available' : '',
+  };
+}
+
+function buildDiagnosticsObjectV461() {
+  const selectedTrack = state.sourceTracks?.[state.selectedSourceIndex] || null;
+  const originalTrack = state.sourceTracks?.[state.originalTrackIndex] || null;
+  const activeCue = state.transcript?.cues?.[state.activeCueIndex] || null;
+  return {
+    generatedAt: new Date().toISOString(),
+    extensionVersion: '4.6.1',
+    platform: state.currentPlatform || null,
+    url: state.lastActiveUrl || state.tab?.url || '',
+    tabId: state.tab?.id || null,
+    videoTitle: state.videoTitle || state.tab?.title || '',
+    channelName: state.channelName || '',
+    videoId: state.videoId || '',
+    badges: {
+      subtitle: subtitleBadgeEl?.textContent?.trim() || '',
+      preview: previewMetaEl?.textContent?.trim() || '',
+      status: statusEl?.textContent?.trim() || '',
+      lineCount: lineCountBadgeEl?.textContent?.trim() || '',
+    },
+    tracks: {
+      sourceCount: Array.isArray(state.sourceTracks) ? state.sourceTracks.length : 0,
+      selectedIndex: Number.isInteger(state.selectedSourceIndex) ? state.selectedSourceIndex : -1,
+      selected: summarizeTrackV461(selectedTrack),
+      original: summarizeTrackV461(originalTrack),
+      translationLanguageCount: Array.isArray(state.translationLanguages) ? state.translationLanguages.length : 0,
+      selectedTargetLanguage: state.selectedTargetLanguage || '',
+    },
+    transcript: {
+      mode: state.settings?.outputMode || '',
+      tab: state.previewTab || '',
+      cues: Number(state.transcript?.cues?.length) || 0,
+      rawSourceCues: Number(state.rawSourceCues?.length) || 0,
+      rawTranslatedCues: Number(state.rawTranslatedCues?.length) || 0,
+      activeCueIndex: Number.isInteger(state.activeCueIndex) ? state.activeCueIndex : -1,
+      activeCueText: activeCue?.text || '',
+    },
+    playback: {
+      isPlaying: Boolean(state.playbackIsPlaying),
+      timeMs: Number(state.playbackTimeMs) || 0,
+      rate: Number(state.playbackRate) || 1,
+      syncProfile: state.settings?.syncProfile || 'smooth',
+      syncOffsetMs: Number(state.settings?.syncOffsetMs) || 0,
+      youtubeLeadMs: Number(state.settings?.youtubeLeadMs) || 0,
+    },
+    settings: {
+      outputMode: state.settings?.outputMode || '',
+      bilingualLayout: state.settings?.bilingualLayout || '',
+      dedupeRepeats: Boolean(state.settings?.dedupeRepeats),
+      mergeShortCues: Boolean(state.settings?.mergeShortCues),
+      preferOriginalTrack: Boolean(state.settings?.preferOriginalTrack),
+      autoFetchOnSelectionChange: Boolean(state.settings?.autoFetchOnSelectionChange),
+      autoScrollLive: Boolean(state.settings?.autoScrollLive),
+      syncProfile: state.settings?.syncProfile || 'smooth',
+      syncOffsetMs: Number(state.settings?.syncOffsetMs) || 0,
+      youtubeLeadMs: Number(state.settings?.youtubeLeadMs) || 0,
+    },
+    liveCapture: {
+      active: Boolean(state.liveCaptureActive),
+      bufferedCues: Array.isArray(state.liveCaptureBuffer) ? state.liveCaptureBuffer.length : 0,
+      lastText: state.liveCaptureLastText || '',
+    },
+    debugTail: Array.isArray(state.debugLines) ? state.debugLines.slice(-20) : [],
+    sessionTail: Array.isArray(state.sessionLogV461) ? state.sessionLogV461.slice(-20) : [],
+  };
+}
+
+function buildDiagnosticsTextV461({ includeDebug = true, includeSession = true } = {}) {
+  const report = buildDiagnosticsObjectV461();
+  const lines = [
+    'Subtitle Grabber · Diagnostics bundle v4.6.1',
+    `Generated: ${report.generatedAt}`,
+    `Platform: ${report.platform || '-'}`,
+    `Title: ${report.videoTitle || '-'}`,
+    `URL: ${report.url || '-'}`,
+    `Track: ${report.tracks.selected?.label || '-'} (${report.tracks.selected?.fetchStrategy || 'fullTrack'})`,
+    `Transcript: ${report.transcript.cues} cues · rawSource=${report.transcript.rawSourceCues} · rawTranslated=${report.transcript.rawTranslatedCues}`,
+    `Playback: ${report.playback.isPlaying ? 'playing' : 'paused'} · time=${report.playback.timeMs} · rate=${report.playback.rate}`,
+    `Settings: autoScroll=${report.settings.autoScrollLive} · profile=${report.settings.syncProfile} · syncOffset=${report.settings.syncOffsetMs} · youtubeLead=${report.settings.youtubeLeadMs}`,
+  ];
+  if (includeDebug && report.debugTail.length) {
+    lines.push('', '--- Debug tail ---', ...report.debugTail);
+  }
+  if (includeSession && report.sessionTail.length) {
+    lines.push('', '--- Session tail ---', ...report.sessionTail.map((entry) => `[${entry.time}] ${entry.kind}: ${entry.message}`));
+  }
+  return lines.join('\n');
+}
+
+function renderDiagnosticsPanelV461({ forceRefreshStamp = false } = {}) {
+  if (!diagnosticPreviewElV461 || !diagnosticMetaElV461) return;
+  if (forceRefreshStamp || !state.diagnosticsRefreshedAtV461) {
+    state.diagnosticsRefreshedAtV461 = new Date().toLocaleTimeString('vi-VN', { hour12: false });
+  }
+  const sessionCount = Array.isArray(state.sessionLogV461) ? state.sessionLogV461.length : 0;
+  diagnosticMetaElV461.textContent = `Refreshed ${state.diagnosticsRefreshedAtV461} · ${sessionCount} session events · ${Number(state.transcript?.cues?.length) || 0} cues`;
+  diagnosticPreviewElV461.textContent = buildDiagnosticsTextV461({ includeDebug: true, includeSession: true });
+}
+
+function observeDiagnosticsStateV461({ force = false } = {}) {
+  const cueSignature = `${state.currentPlatform}|${Number(state.activeCueIndex) || -1}|${state.transcript?.cues?.length || 0}|${state.liveCaptureLastText || ''}`;
+  const track = state.sourceTracks?.[state.selectedSourceIndex] || null;
+  const trackSignature = `${track?.effectiveLabel || track?.languageCode || '-'}|${track?.fetchStrategy || '-'}|${state.selectedTargetLanguage || '-'}`;
+  const platformUrlSignature = `${state.currentPlatform}|${state.lastActiveUrl || state.tab?.url || ''}`;
+  if (force || cueSignature !== __v461ObserverState.lastCueSignature) {
+    __v461ObserverState.lastCueSignature = cueSignature;
+    const cue = state.transcript?.cues?.[state.activeCueIndex];
+    if (cue?.text) {
+      addSessionLogEntryV461('cue', cue.text.replace(/\s+/g, ' ').slice(0, 220));
+    } else if (state.liveCaptureLastText) {
+      addSessionLogEntryV461('cue', state.liveCaptureLastText.replace(/\s+/g, ' ').slice(0, 220));
+    }
+  }
+  if (force || trackSignature !== __v461ObserverState.lastTrackSignature) {
+    __v461ObserverState.lastTrackSignature = trackSignature;
+    if (trackSignature !== 'undefined') {
+      addSessionLogEntryV461('track', `Đang chọn ${track?.effectiveLabel || track?.name || track?.languageCode || '-'} · ${track?.fetchStrategy || 'fullTrack'}`);
+    }
+  }
+  if (force || platformUrlSignature !== __v461ObserverState.lastPlatformUrlSignature) {
+    __v461ObserverState.lastPlatformUrlSignature = platformUrlSignature;
+    addSessionLogEntryV461('platform', `${platformLabel(state.currentPlatform)} · ${state.lastActiveUrl || state.tab?.url || ''}`);
+  }
+  renderDiagnosticsPanelV461();
+}
+
+function startDiagnosticsObserverV461() {
+  if (__v461ObserverTimer) clearInterval(__v461ObserverTimer);
+  __v461ObserverTimer = window.setInterval(() => observeDiagnosticsStateV461(), 900);
+  observeDiagnosticsStateV461({ force: true });
+}
+
+startDiagnosticsObserverV461();
+window.addEventListener('beforeunload', () => {
+  if (__v461ObserverTimer) {
+    clearInterval(__v461ObserverTimer);
+    __v461ObserverTimer = null;
+  }
+});

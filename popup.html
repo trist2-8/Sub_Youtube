@@ -168,8 +168,10 @@
               <span id="playbackStatusChip" class="panel-chip">Sync idle</span>
               <span id="playbackTimeChip" class="panel-chip">00:00:00,000</span>
               <span id="activeCueChip" class="panel-chip">Cue -</span>
+              <span id="liveSyncProfileChip" class="panel-chip">Profile Smooth</span>
               <span class="panel-chip">Click line to seek</span>
             </div>
+            <p id="liveSyncHint" class="search-info">Timeline sync chỉ chạy khi popup đang mở. Có thể click vào từng dòng subtitle để tua video.</p>
 
             <div class="tabs-wrap top-tabs" role="tablist" aria-label="Transcript modes">
               <button class="tab-btn is-active" type="button" data-tab="text" role="tab" aria-selected="true">Text</button>
@@ -231,6 +233,23 @@
                 <pre id="debug" class="debug">Chưa có log.</pre>
               </div>
             </details>
+
+            <details class="debug-card diagnostics-card">
+              <summary>
+                <span>Diagnostics &amp; session</span>
+                <span class="summary-note">Bug bundle · session export</span>
+              </summary>
+              <div class="debug-body diagnostics-body">
+                <div class="diagnostic-actions">
+                  <button id="refreshDiagnosticsBtn" class="mini-btn" type="button">Refresh report</button>
+                  <button id="copyDiagnosticsBtn" class="mini-btn" type="button">Copy bundle</button>
+                  <button id="exportDiagnosticsBtn" class="mini-btn" type="button">Export JSON</button>
+                  <button id="exportSessionLogBtn" class="mini-btn" type="button">Export session</button>
+                </div>
+                <p id="diagnosticMeta" class="search-info">Diagnostics sẽ hiện ở đây sau khi popup sẵn sàng.</p>
+                <pre id="diagnosticPreview" class="debug">Chưa có capability report.</pre>
+              </div>
+            </details>
           </section>
         </div>
 
@@ -255,6 +274,22 @@
                 <option value="stacked">Stacked · gốc trên / dịch dưới</option>
                 <option value="split">Split · trái / phải</option>
               </select>
+            </div>
+
+            <div class="setting-box">
+              <label for="syncProfileSelect">Timeline sync profile</label>
+              <select id="syncProfileSelect">
+                <option value="accurate">Accurate · ổn định, ít nhảy</option>
+                <option value="smooth">Smooth · cân bằng</option>
+                <option value="aggressive">Aggressive · bám giọng nhanh hơn</option>
+              </select>
+              <small class="field-help">Chỉ thay đổi cách theo dõi cue theo thời gian, không đụng vào luồng fetch subtitle đang ổn.</small>
+            </div>
+
+            <div class="setting-box">
+              <label for="youtubeLeadInput">YouTube lead (ms)</label>
+              <input id="youtubeLeadInput" type="number" min="0" max="1200" step="10" value="320" />
+              <small class="field-help">Đẩy cue hiển thị sớm hơn để bám giọng đọc YouTube.</small>
             </div>
 
             <div class="toggle-list">
