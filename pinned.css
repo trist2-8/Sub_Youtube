@@ -1,13 +1,15 @@
 :root {
   color-scheme: dark;
-  --bg: #0f1115;
-  --panel: #171c24;
-  --panel-2: #1d2430;
-  --border: rgba(255,255,255,0.06);
+  --bg: #0c1016;
+  --panel: #151c26;
+  --panel-2: #1b2330;
+  --border: rgba(255,255,255,0.07);
+  --border-strong: rgba(124,140,255,0.22);
   --accent: #7c8cff;
+  --accent-soft: rgba(124,140,255,0.16);
   --text: #edf2fb;
   --text-soft: #9ca8bc;
-  --shadow: 0 22px 50px rgba(0,0,0,0.35);
+  --shadow: 0 18px 36px rgba(0,0,0,0.28);
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 * { box-sizing: border-box; }
@@ -15,27 +17,27 @@ html, body {
   margin: 0;
   width: 100%;
   height: 100%;
-  background: radial-gradient(circle at top, rgba(124,140,255,0.16), transparent 38%), var(--bg);
+  background: radial-gradient(circle at top, rgba(124,140,255,0.14), transparent 34%), var(--bg);
   color: var(--text);
 }
 body { overflow: hidden; }
 button { font: inherit; }
 .pin-shell {
   height: 100%;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   gap: 10px;
-  padding: 12px;
+  padding: 10px;
 }
 .pin-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: 18px;
-  background: rgba(18,22,29,0.92);
+  border-radius: 16px;
+  background: rgba(15,19,26,0.92);
 }
 .pin-brand {
   display: flex;
@@ -43,30 +45,33 @@ button { font: inherit; }
   gap: 10px;
   min-width: 0;
 }
+.pin-brand-copy { min-width: 0; }
 .pin-logo {
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
-  border-radius: 14px;
+  border-radius: 12px;
   background: linear-gradient(180deg, rgba(124,140,255,0.2), rgba(124,140,255,0.06));
   border: 1px solid rgba(124,140,255,0.26);
   color: var(--accent);
+  flex: 0 0 auto;
 }
-.pin-logo svg, .icon-btn svg { width: 16px; height: 16px; }
+.pin-logo svg,
+.icon-btn svg { width: 16px; height: 16px; }
 .pin-brand h1 {
   margin: 0;
   font-size: 14px;
   font-weight: 700;
 }
 .pin-brand p {
-  margin: 4px 0 0;
+  margin: 3px 0 0;
   font-size: 11px;
   color: var(--text-soft);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 300px;
+  max-width: 260px;
 }
 .icon-btn {
   width: 34px;
@@ -77,70 +82,142 @@ button { font: inherit; }
   color: var(--text-soft);
   cursor: pointer;
 }
+.icon-btn:hover { border-color: var(--border-strong); color: var(--text); }
 .pin-meta {
   display: flex;
-  gap: 8px;
   flex-wrap: wrap;
+  gap: 8px;
 }
 .meta-chip {
   display: inline-flex;
   align-items: center;
   min-height: 28px;
-  padding: 0 12px;
+  padding: 0 11px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: rgba(23,28,36,0.96);
+  background: rgba(21,28,38,0.96);
   color: var(--text-soft);
   font-size: 12px;
 }
-.pin-grid {
-  flex: 1;
-  min-height: 0;
+.meta-chip-soft { background: rgba(255,255,255,0.03); }
+.pin-current-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
 .pin-card {
+  min-width: 0;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-  border-radius: 20px;
+  border-radius: 18px;
   border: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(29,36,48,0.95), rgba(21,27,36,0.96));
+  background: linear-gradient(180deg, rgba(27,35,48,0.95), rgba(20,27,36,0.96));
   box-shadow: var(--shadow);
 }
-.pin-label-wrap {
-  padding: 12px 14px 10px;
+.pin-card-current {
+  display: flex;
+  flex-direction: column;
+}
+.pin-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 12px 9px;
   border-bottom: 1px solid var(--border);
 }
 .pin-kicker {
   display: block;
-  font-size: 11px;
-  letter-spacing: 0.12em;
+  font-size: 10px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-soft);
-  margin-bottom: 6px;
+  margin-bottom: 5px;
 }
-.pin-label-wrap strong {
+.pin-card-head strong {
   font-size: 14px;
 }
-.pin-text {
-  flex: 1;
-  min-height: 0;
-  padding: 14px;
-  font-size: 19px;
-  line-height: 1.45;
+.pin-current-text {
+  min-height: 94px;
+  max-height: 130px;
   overflow: auto;
+  padding: 12px;
+  font-size: 15px;
+  line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
 }
-.pin-text.dim { color: var(--text-soft); }
+.pin-current-text-dim { color: var(--text-soft); }
+.pin-card-log {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pin-log-head { align-items: flex-end; }
+.pin-log-hint {
+  font-size: 11px;
+  color: var(--text-soft);
+  white-space: nowrap;
+}
+.pin-review-log {
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pin-log-item {
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.025);
+}
+.pin-log-item.is-active {
+  border-color: var(--border-strong);
+  background: rgba(124,140,255,0.08);
+}
+.pin-log-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.pin-log-time {
+  color: var(--text-soft);
+  font-size: 11px;
+}
+.pin-log-mode {
+  color: var(--text-soft);
+  font-size: 11px;
+}
+.pin-log-source,
+.pin-log-output {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.45;
+  font-size: 13px;
+}
+.pin-log-output {
+  color: #b6c2d9;
+  margin-top: 4px;
+}
+.pin-log-empty {
+  color: var(--text-soft);
+  font-size: 13px;
+  padding: 4px 2px;
+}
 .pin-footer {
   padding: 0 4px;
   color: var(--text-soft);
   font-size: 12px;
 }
-@media (max-width: 520px) {
-  .pin-grid { grid-template-columns: 1fr; }
+@media (max-width: 580px) {
+  .pin-shell {
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 8px;
+  }
+  .pin-current-grid { grid-template-columns: 1fr; }
   .pin-brand p { max-width: 180px; }
 }

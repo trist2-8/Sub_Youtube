@@ -6,28 +6,40 @@ const titleEl = document.getElementById('pinTitle');
 const platformChipEl = document.getElementById('pinPlatformChip');
 const statusChipEl = document.getElementById('pinStatusChip');
 const timeChipEl = document.getElementById('pinTimeChip');
+const reviewCountEl = document.getElementById('pinReviewCount');
 const sourceLabelEl = document.getElementById('pinSourceLabel');
 const outputLabelEl = document.getElementById('pinOutputLabel');
 const sourceTextEl = document.getElementById('pinSourceText');
 const outputTextEl = document.getElementById('pinOutputText');
+const reviewLogEl = document.getElementById('pinReviewLog');
+const logHintEl = document.getElementById('pinLogHint');
 const footerNoteEl = document.getElementById('pinFooterNote');
 
 const params = new URLSearchParams(location.search);
 const targetTabIdFromUrl = Number(params.get('tabId')) || null;
 
+const PIN_SNAPSHOT_MS = 100;
+const PIN_RENDER_MS = 30;
+const PIN_LIVE_CAPTURE_MS = 140;
+const PIN_STALE_MS = 900;
+const PIN_DEFAULT_YT_LEAD_MS = 320;
+const PIN_MAX_REVIEW_ITEMS = 300;
+
 const state = {
   tabId: targetTabIdFromUrl,
   lastUrl: '',
   platform: '',
+  isLoading: false,
   settings: {
     preferredTargetLanguage: ORIGINAL_LANGUAGE_SENTINEL,
-    youtubeLeadMs: 220,
+    youtubeLeadMs: PIN_DEFAULT_YT_LEAD_MS,
   },
   sourceLabel: 'Original',
   outputLabel: 'Translation',
   sourceCues: [],
   outputCues: [],
-  playbackTimer: null,
+  playbackSnapshotTimer: null,
+  playbackRenderTimer: null,
   liveTimer: null,
   refreshWatcher: null,
   playbackBaseMs: 0,
@@ -35,8 +47,10 @@ const state = {
   playbackRate: 1,
   playbackIsPlaying: false,
   playbackTimeMs: 0,
+  lastPlaybackSnapshotAt: 0,
   activeIndex: -1,
   liveText: '',
+  reviewEntries: [],
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -51,15 +65,19 @@ window.addEventListener('beforeunload', stopAllTimers);
 
 async function init() {
   await loadSettings();
+  renderTexts('Waiting for subtitle…', 'Chưa có dữ liệu dịch hoặc song ngữ.');
+  renderReviewLog();
   setStatus('Đang kết nối với tab video…');
   await loadPinnedData({ force: true });
   state.refreshWatcher = window.setInterval(async () => {
     const tab = await getTargetTab();
-    if (!tab?.url) return;
-    if (tab.url !== state.lastUrl) {
-      await loadPinnedData({ force: true });
+    if (!tab?.url || state.isLoading) return;
+    const urlChanged = tab.url !== state.lastUrl;
+    const idle = !state.playbackSnapshotTimer && !state.liveTimer;
+    if (urlChanged || idle) {
+      await loadPinnedData({ force: true, preserveHistory: !urlChanged });
     }
-  }, 1200);
+  }, 1500);
 }
 
 async function loadSettings() {
@@ -73,7 +91,7 @@ async function loadSettings() {
     // ignore
   }
   const lead = Number(state.settings.youtubeLeadMs);
-  state.settings.youtubeLeadMs = Number.isFinite(lead) ? lead : 220;
+  state.settings.youtubeLeadMs = Number.isFinite(lead) ? lead : PIN_DEFAULT_YT_LEAD_MS;
 }
 
 async function getTargetTab() {
@@ -114,36 +132,51 @@ async function executeInPage(func, args = []) {
   return results?.[0]?.result;
 }
 
-async function loadPinnedData({ force = false } = {}) {
+async function loadPinnedData({ force = false, preserveHistory = true } = {}) {
+  if (state.isLoading && !force) return;
+  state.isLoading = true;
   stopPlaybackTimer();
   stopLiveCapture();
   const tab = await getTargetTab();
   if (!tab?.url) {
+    state.isLoading = false;
     setStatus('Không tìm thấy tab video.');
-    renderTexts('Waiting for subtitle…', 'Chưa có dữ liệu dịch hoặc song ngữ.');
+    renderTexts('Waiting for subtitle…', 'Mở YouTube hoặc Netflix rồi bấm ghim từ popup chính.');
     return;
+  }
+
+  const platform = detectPlatform(tab.url);
+  const sameVideo = state.lastUrl && state.lastUrl === tab.url;
+  if (!preserveHistory || !sameVideo) {
+    state.reviewEntries = [];
+    renderReviewLog();
   }
 
   state.lastUrl = tab.url;
-  state.platform = detectPlatform(tab.url);
-  platformChipEl.textContent = state.platform ? state.platform.toUpperCase() : 'Unsupported';
+  state.platform = platform;
+  platformChipEl.textContent = platform ? platform.toUpperCase() : 'Unsupported';
   titleEl.textContent = tab.title || 'Video';
+  sourceLabelEl.textContent = 'Original';
+  outputLabelEl.textContent = 'Output';
 
-  if (state.platform === 'youtube') {
-    await loadYoutubePinned(force);
-    return;
+  try {
+    if (platform === 'youtube') {
+      await loadYoutubePinned();
+    } else if (platform === 'netflix') {
+      await loadNetflixPinned();
+    } else {
+      renderTexts('Waiting for subtitle…', 'Mở video YouTube hoặc Netflix rồi bấm nút ghim từ popup chính.');
+      setStatus('Tab hiện tại không phải YouTube hoặc Netflix.');
+      footerNoteEl.textContent = 'Cửa sổ ghim chỉ hoạt động với YouTube hoặc Netflix.';
+    }
+  } finally {
+    state.isLoading = false;
   }
-
-  if (state.platform === 'netflix') {
-    await loadNetflixPinned(force);
-    return;
-  }
-
-  renderTexts('Waiting for subtitle…', 'Mở video YouTube hoặc Netflix rồi bấm nút ghim từ popup chính.');
-  setStatus('Tab hiện tại không phải YouTube hoặc Netflix.');
 }
 
-async function loadYoutubePinned(force) {
+async function loadYoutubePinned() {
+  footerNoteEl.textContent = 'Cửa sổ ghim tự chạy riêng để bạn theo dõi subtitle khi popup chính đã đóng.';
+  logHintEl.textContent = 'Tự lưu khi câu YouTube chuyển cue';
   const metadata = await executeInPage(pageGetYoutubeMetadataPinned, []);
   if (!metadata?.ok || !metadata.sourceTracks?.length) {
     renderTexts('Waiting for subtitle…', 'Video YouTube này chưa có phụ đề hoặc chưa đọc được track.');
@@ -165,11 +198,10 @@ async function loadYoutubePinned(force) {
   state.sourceCues = sourceResult.cues;
   state.outputCues = [];
   outputLabelEl.textContent = 'Output';
-  footerNoteEl.textContent = 'Cửa sổ ghim chạy độc lập, không can thiệp popup chính.';
 
   const targetLanguage = state.settings.preferredTargetLanguage || ORIGINAL_LANGUAGE_SENTINEL;
   if (targetLanguage !== ORIGINAL_LANGUAGE_SENTINEL && sourceTrack.isTranslatable) {
-    const targetMeta = metadata.translationLanguages.find((item) => item.languageCode === targetLanguage);
+    const targetMeta = (metadata.translationLanguages || []).find((item) => item.languageCode === targetLanguage);
     const translationRequest = {
       ...sourceTrack,
       isTranslation: true,
@@ -184,15 +216,14 @@ async function loadYoutubePinned(force) {
     }
   }
 
-  if (!state.outputCues.length) {
-    outputLabelEl.textContent = 'Output';
-  }
-
+  renderTexts('Waiting for subtitle…', state.outputCues.length ? 'Đang chờ câu dịch khớp theo thời gian…' : 'Chế độ ghim đang theo dõi phụ đề gốc.');
   setStatus('Live sync');
   startPlaybackTimer();
 }
 
-async function loadNetflixPinned(force) {
+async function loadNetflixPinned() {
+  footerNoteEl.textContent = 'Nếu Netflix không lộ full track, cửa sổ ghim sẽ giữ lại toàn bộ live capture theo thời gian.';
+  logHintEl.textContent = 'Tự lưu khi subtitle Netflix đổi dòng';
   const metadata = await executeInPage(pageGetNetflixMetadataPinned, []);
   if (!metadata?.ok || !metadata.sourceTracks?.length) {
     renderTexts('Waiting for subtitle…', 'Netflix chưa expose subtitle track nào. Hãy bật phụ đề trong player rồi refresh.');
@@ -204,12 +235,12 @@ async function loadNetflixPinned(force) {
   state.sourceLabel = sourceTrack.name || sourceTrack.languageCode || 'Original';
   sourceLabelEl.textContent = state.sourceLabel;
   outputLabelEl.textContent = 'Output';
-  footerNoteEl.textContent = 'Nếu title Netflix không lộ full track, cửa sổ ghim sẽ chuyển sang live capture.';
 
   const sourceResult = await executeInPage(pageFetchNetflixTrackPinned, [sourceTrack]);
   if (sourceResult?.ok && sourceResult.cues?.length) {
     state.sourceCues = sourceResult.cues;
     state.outputCues = [];
+    renderTexts('Waiting for subtitle…', 'Title Netflix này cho phép đọc full transcript.');
     setStatus('Live sync');
     startPlaybackTimer();
     return;
@@ -217,22 +248,29 @@ async function loadNetflixPinned(force) {
 
   state.sourceCues = [];
   state.outputCues = [];
-  renderTexts('Waiting for subtitle…', 'Đang chuyển sang live capture subtitle đang hiển thị.');
+  renderTexts('Waiting for subtitle…', 'Đang live capture subtitle đang hiển thị.');
   setStatus('Live capture');
   startLiveCapture();
 }
 
 function startPlaybackTimer() {
   stopPlaybackTimer();
-  state.playbackTimer = window.setInterval(syncPlayback, 50);
+  state.activeIndex = -1;
+  state.playbackSnapshotTimer = window.setInterval(syncPlaybackSnapshot, PIN_SNAPSHOT_MS);
+  state.playbackRenderTimer = window.setInterval(syncPlayback, PIN_RENDER_MS);
   syncPlaybackSnapshot();
 }
 
 function stopPlaybackTimer() {
-  if (state.playbackTimer) {
-    clearInterval(state.playbackTimer);
-    state.playbackTimer = null;
+  if (state.playbackSnapshotTimer) {
+    clearInterval(state.playbackSnapshotTimer);
+    state.playbackSnapshotTimer = null;
   }
+  if (state.playbackRenderTimer) {
+    clearInterval(state.playbackRenderTimer);
+    state.playbackRenderTimer = null;
+  }
+  state.activeIndex = -1;
 }
 
 function stopLiveCapture() {
@@ -260,6 +298,7 @@ async function syncPlaybackSnapshot() {
     state.playbackPerfMs = performance.now();
     state.playbackRate = Math.max(0.1, Number(snapshot.playbackRate) || 1);
     state.playbackIsPlaying = Boolean(snapshot.isPlaying);
+    state.lastPlaybackSnapshotAt = Date.now();
   } catch {
     // ignore
   }
@@ -279,10 +318,13 @@ function estimatePlaybackTime() {
 function findCueIndex(cues, timeMs, activeIndex) {
   if (!cues.length) return -1;
   const activeCue = cues[activeIndex];
-  if (activeCue && timeMs >= activeCue.startMs - 30 && timeMs < activeCue.endMs + 90) return activeIndex;
+  const inCue = (cue, ms) => ms >= cue.startMs - 50 && ms < cue.endMs + 120;
+  if (activeCue && inCue(activeCue, timeMs)) return activeIndex;
   for (let step = 1; step <= 3; step += 1) {
-    const idx = activeIndex + step;
-    if (cues[idx] && timeMs >= cues[idx].startMs - 30 && timeMs < cues[idx].endMs + 90) return idx;
+    const next = cues[activeIndex + step];
+    if (next && inCue(next, timeMs)) return activeIndex + step;
+    const prev = cues[activeIndex - step];
+    if (prev && inCue(prev, timeMs)) return activeIndex - step;
   }
   let low = 0;
   let high = cues.length - 1;
@@ -294,17 +336,24 @@ function findCueIndex(cues, timeMs, activeIndex) {
     else return mid;
   }
   const candidate = Math.max(0, Math.min(cues.length - 1, low));
-  if (Math.abs((cues[candidate]?.startMs || 0) - timeMs) <= 450) return candidate;
+  if (Math.abs((cues[candidate]?.startMs || 0) - timeMs) <= 520) return candidate;
+  const prev = candidate - 1;
+  if (prev >= 0 && Math.abs((cues[prev]?.endMs || 0) - timeMs) <= 380) return prev;
   return -1;
 }
 
 function syncPlayback() {
   if (!state.sourceCues.length) return;
+  if (Date.now() - (state.lastPlaybackSnapshotAt || 0) > PIN_STALE_MS) {
+    state.playbackIsPlaying = false;
+  }
   state.playbackTimeMs = estimatePlaybackTime();
   const idx = findCueIndex(state.sourceCues, state.playbackTimeMs, state.activeIndex);
-  if (idx !== state.activeIndex) {
+  const changed = idx !== state.activeIndex;
+  if (changed) {
     state.activeIndex = idx;
     updateTextsFromCues();
+    if (idx >= 0) appendReviewEntryFromActiveCue();
   }
   timeChipEl.textContent = formatTimestamp(state.playbackTimeMs);
   statusChipEl.textContent = state.playbackIsPlaying ? 'Playing' : 'Paused';
@@ -339,6 +388,45 @@ function findBestOutputCue(sourceCue, cues, preferredIndex) {
   return delta <= 2600 ? best : null;
 }
 
+function appendReviewEntryFromActiveCue() {
+  const cue = state.sourceCues[state.activeIndex];
+  if (!cue?.text) return;
+  let outputText = '';
+  if (state.outputCues.length) {
+    const out = findBestOutputCue(cue, state.outputCues, state.activeIndex);
+    if (out?.text) outputText = out.text;
+  }
+  appendReviewEntry({
+    timeMs: cue.startMs,
+    sourceText: cue.text,
+    outputText,
+    mode: state.platform === 'youtube' ? 'Cue' : 'Transcript',
+  });
+}
+
+function appendReviewEntry({ timeMs, sourceText, outputText = '', mode = '' }) {
+  const source = String(sourceText || '').trim();
+  const output = String(outputText || '').trim();
+  if (!source) return;
+  const last = state.reviewEntries[state.reviewEntries.length - 1];
+  if (last && last.sourceText === source && last.outputText === output) {
+    last.timeMs = Math.max(last.timeMs, Number(timeMs) || 0);
+    renderReviewLog();
+    return;
+  }
+  state.reviewEntries.push({
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    timeMs: Math.max(0, Number(timeMs) || 0),
+    sourceText: source,
+    outputText: output,
+    mode,
+  });
+  if (state.reviewEntries.length > PIN_MAX_REVIEW_ITEMS) {
+    state.reviewEntries.splice(0, state.reviewEntries.length - PIN_MAX_REVIEW_ITEMS);
+  }
+  renderReviewLog();
+}
+
 function startLiveCapture() {
   stopLiveCapture();
   state.liveTimer = window.setInterval(async () => {
@@ -348,14 +436,22 @@ function startLiveCapture() {
       state.playbackTimeMs = Math.max(0, Number(snapshot.currentTimeMs) || 0);
       timeChipEl.textContent = formatTimestamp(state.playbackTimeMs);
       statusChipEl.textContent = snapshot.text ? 'Live capture' : 'Waiting';
-      if (snapshot.text && snapshot.text !== state.liveText) {
-        state.liveText = snapshot.text;
-        renderTexts(snapshot.text, 'Netflix không cung cấp full transcript cho title này.');
+      const text = String(snapshot.text || '').trim();
+      if (!text) return;
+      if (text !== state.liveText) {
+        state.liveText = text;
+        renderTexts(text, 'Live capture đang giữ lại toàn bộ các dòng đã bắt được.');
+        appendReviewEntry({
+          timeMs: state.playbackTimeMs,
+          sourceText: text,
+          outputText: '',
+          mode: 'Live',
+        });
       }
     } catch {
       // ignore
     }
-  }, 140);
+  }, PIN_LIVE_CAPTURE_MS);
 }
 
 function renderTexts(sourceText, outputText) {
@@ -363,8 +459,44 @@ function renderTexts(sourceText, outputText) {
   outputTextEl.textContent = outputText || 'Chưa có dữ liệu dịch hoặc song ngữ.';
 }
 
+function renderReviewLog() {
+  reviewCountEl.textContent = `${state.reviewEntries.length} dòng`;
+  if (!reviewLogEl) return;
+  if (!state.reviewEntries.length) {
+    reviewLogEl.innerHTML = '<div class="pin-log-empty">Chưa có dòng nào được lưu. Khi subtitle đổi dòng, lịch sử sẽ xuất hiện ở đây.</div>';
+    return;
+  }
+  const items = state.reviewEntries
+    .map((entry, index) => {
+      const isActive = index === state.reviewEntries.length - 1;
+      return `
+        <article class="pin-log-item${isActive ? ' is-active' : ''}">
+          <div class="pin-log-top">
+            <span class="pin-log-time">${escapeHtml(formatTimestamp(entry.timeMs))}</span>
+            <span class="pin-log-mode">${escapeHtml(entry.mode || '')}</span>
+          </div>
+          <div class="pin-log-source">${escapeHtml(entry.sourceText)}</div>
+          ${entry.outputText ? `<div class="pin-log-output">${escapeHtml(entry.outputText)}</div>` : ''}
+        </article>
+      `;
+    })
+    .join('');
+  reviewLogEl.innerHTML = items;
+  reviewLogEl.scrollTop = reviewLogEl.scrollHeight;
+}
+
 function setStatus(text) {
   statusChipEl.textContent = text || 'Ready';
+}
+
+function escapeHtml(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/\n/g, '<br>');
 }
 
 function formatTimestamp(ms) {
@@ -424,6 +556,7 @@ function pageGetYoutubeMetadataPinned() {
   const renderer = playerResponse?.captions?.playerCaptionsTracklistRenderer;
   const captionTracks = Array.isArray(renderer?.captionTracks) ? renderer.captionTracks : [];
   const translationLanguages = Array.isArray(renderer?.translationLanguages) ? renderer.translationLanguages : [];
+  push(`captionTracks=${captionTracks.length}`);
   const sourceTracks = captionTracks.map((track, index) => ({
     index,
     label: `${getTextFromRuns(track.name) || track.languageCode || 'unknown'} [${track.languageCode || 'unknown'}]${track.kind === 'asr' ? ' • auto' : ''}`,
@@ -443,6 +576,7 @@ function pageGetYoutubeMetadataPinned() {
     sourceTracks,
     translationLanguages: langs,
     defaultSourceIndex: 0,
+    debug,
   };
 }
 
@@ -475,6 +609,25 @@ async function pageFetchYoutubeTrackPinned(track) {
       return text ? { startMs, endMs, text } : null;
     }).filter(Boolean);
   }
+  function parseVtt(text) {
+    return String(text || '')
+      .replace(/\r/g, '')
+      .split(/\n{2,}/)
+      .map((block) => block.trim())
+      .filter(Boolean)
+      .map((block) => {
+        const lines = block.split('\n');
+        const timing = lines.find((line) => line.includes('-->'));
+        if (!timing) return null;
+        const parts = timing.split(/\s+-->\s+/);
+        if (parts.length !== 2) return null;
+        const startMs = parseClockToMs(parts[0].split(' ')[0]);
+        const endMs = parseClockToMs(parts[1].split(' ')[0]);
+        const body = normalizeCueText(lines.slice(lines.indexOf(timing) + 1).join('\n'));
+        return body ? { startMs, endMs: endMs > startMs ? endMs : startMs + 1800, text: body } : null;
+      })
+      .filter(Boolean);
+  }
   function parseJson(data) {
     const events = Array.isArray(data?.events) ? data.events : [];
     return events.map((event) => {
@@ -485,22 +638,55 @@ async function pageFetchYoutubeTrackPinned(track) {
       return text ? { startMs, endMs: durMs > 0 ? startMs + durMs : startMs + 1800, text } : null;
     }).filter(Boolean);
   }
+  function parseJsonText(raw) {
+    let text = String(raw || '').trim();
+    if (!text) return null;
+    text = text.replace(/^\)\]\}'\s*/, '');
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  }
+  async function fetchAndParse(url) {
+    const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+    if (!response.ok) return [];
+    const raw = await response.text();
+    if (!raw.trim()) return [];
+    const jsonData = parseJsonText(raw);
+    if (jsonData) {
+      const cues = parseJson(jsonData);
+      if (cues.length) return cues;
+    }
+    if (/^WEBVTT/i.test(raw) || raw.includes('-->')) {
+      const cues = parseVtt(raw);
+      if (cues.length) return cues;
+    }
+    if (raw.includes('<text') || raw.includes('<transcript')) {
+      const cues = parseXml(raw);
+      if (cues.length) return cues;
+    }
+    return [];
+  }
+
   try {
-    const url = new URL(track.baseUrl, location.href);
-    url.searchParams.set('fmt', 'json3');
-    if (track.isTranslation && track.targetLanguageCode) url.searchParams.set('tlang', track.targetLanguageCode);
-    const response = await fetch(url.toString(), { credentials: 'same-origin', cache: 'no-store' });
-    if (response.ok) {
-      const data = await response.json();
-      const cues = parseJson(data);
+    const candidates = [];
+    const base = new URL(track.baseUrl, location.href);
+    if (track.isTranslation && track.targetLanguageCode) base.searchParams.set('tlang', track.targetLanguageCode);
+    const jsonUrl = new URL(base.toString());
+    jsonUrl.searchParams.set('fmt', 'json3');
+    candidates.push(jsonUrl.toString());
+    const vttUrl = new URL(base.toString());
+    vttUrl.searchParams.set('fmt', 'vtt');
+    candidates.push(vttUrl.toString());
+    candidates.push(base.toString());
+
+    for (const candidate of candidates) {
+      const cues = await fetchAndParse(candidate);
       if (cues.length) return { ok: true, cues };
     }
-    const fallback = new URL(track.baseUrl, location.href);
-    if (track.isTranslation && track.targetLanguageCode) fallback.searchParams.set('tlang', track.targetLanguageCode);
-    const xmlResponse = await fetch(fallback.toString(), { credentials: 'same-origin', cache: 'no-store' });
-    const xmlText = await xmlResponse.text();
-    const cues = parseXml(xmlText);
-    return cues.length ? { ok: true, cues } : { ok: false, error: 'Timedtext không trả về cue nào.' };
+
+    return { ok: false, error: 'Timedtext không trả về cue nào có thể parse.' };
   } catch (error) {
     return { ok: false, error: error?.message || 'Không tải được timedtext.' };
   }
@@ -514,6 +700,7 @@ function pageGetNetflixMetadataPinned() {
     if (!video) return { ok: false, error: 'Không tìm thấy video Netflix đang phát.', debug };
     const textTracks = Array.from(video.textTracks || []).filter((track) => ['subtitles', 'captions'].includes(String(track.kind || '').toLowerCase()));
     const activeIndex = textTracks.findIndex((track) => String(track.mode || '').toLowerCase() === 'showing');
+    push(`textTracks=${textTracks.length}`);
     const sourceTracks = textTracks.map((track, index) => ({
       index,
       platform: 'netflix',
@@ -532,7 +719,7 @@ function pageGetNetflixMetadataPinned() {
       languageCode: 'live',
       name: 'Live capture',
     });
-    return { ok: true, sourceTracks, defaultSourceIndex: activeIndex >= 0 ? activeIndex : 0 };
+    return { ok: true, sourceTracks, defaultSourceIndex: activeIndex >= 0 ? activeIndex : 0, debug };
   } catch (error) {
     push(error?.message || 'Unknown error');
     return { ok: false, error: error?.message || 'Không đọc được metadata Netflix.', debug };

@@ -1,5 +1,5 @@
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('Subtitle Grabber v4.1.0 installed');
+  console.log('Subtitle Grabber v4.2.0 installed');
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -39,8 +39,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       {
         url,
         type: 'popup',
-        width: 520,
-        height: 320,
+        width: 460,
+        height: 360,
         focused: true,
       },
       (createdWindow) => {
@@ -66,7 +66,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 function sanitizeFilename(name) {
   return (
     String(name || 'subtitle-grabber')
-      .replace(/[\\/:*?"<>|]/g, ' ')
+      .replace(/[\/:*?"<>|]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 150) || 'subtitle-grabber'
