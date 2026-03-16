@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Subtitle Grabber",
-  "version": "4.3.0",
-  "description": "YouTube + Netflix subtitle extractor with safer pinned window, YouTube live-overlay fallback, and persistent review log.",
+  "version": "4.4.0",
+  "description": "YouTube + Netflix subtitle extractor with popup Netflix live-capture fallback synced with pin window, plus persistent review log.",
   "minimum_chrome_version": "114",
   "permissions": [
     "activeTab",

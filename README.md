@@ -1,18 +1,18 @@
-# Subtitle Grabber 4.3.0
+# Subtitle Grabber 4.4.0
 
-Ban nay tap trung sua lai cua so ghim de khong lam anh huong toi popup chinh va gia co them fallback cho YouTube pin.
+Ban nay tap trung sua mot diem con loi cuoi o popup chinh: Netflix pin da bat duoc live capture nhung popup chinh van khong lay duoc subtitle.
 
 ## Diem moi
 
-- Pin window dung file rieng `pinned.html` + `pinned.js`, khong dung chung popup chinh
-- Pin YouTube uu tien doc full timedtext, neu timedtext khong parse duoc se tu chuyen sang live caption overlay
-- Pin Netflix van giu luong full track neu co, neu khong se live capture subtitle dang hien thi
-- Them **review log** luu lai qua trinh subtitle thay doi theo thoi gian
-- Giam kich thuoc mac dinh cua cua so ghim de de vua xem video vua theo doi subtitle hon
-- Tang do ben cua YouTube pin bang fetch timedtext theo nhieu bien the `json3`, `srv3`, `vtt`, `ttml`
+- Popup chinh Netflix da co **live capture fallback** giong cua so pin
+- Neu Netflix khong expose full cues, popup se tu chuyen sang doc subtitle dang hien thi tren player
+- Them **track Live capture** trong danh sach Source cua popup chinh de co the chon truc tiep
+- Neu track Netflix thuong khong doc duoc cues, popup se tu fallback sang live capture thay vi bao loi roi dung
+- Live capture trong popup chinh se **luu lai toan bo qua trinh subtitle**, khong chi hien roi mat
+- Giu nguyen luong YouTube va cua so pin dang on dinh
 
 ## Ghi chu thuc te
 
-- Popup chinh van giu luong rieng, pin chay doc lap
-- YouTube pin da co fallback overlay nen ngay ca khi timedtext loi, ban van theo doi duoc subtitle dang hien tren video
-- Netflix live capture se duoc luu lai trong review log, khong con hien roi mat ngay nua
+- Pin YouTube va pin Netflix van chay doc lap
+- Popup chinh va pin gio da thong nhat logic fallback cho Netflix
+- Khi Netflix khong lo full transcript, popup chinh van co the theo doi subtitle theo thoi gian thuc bang live capture

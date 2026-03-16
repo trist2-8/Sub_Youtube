@@ -40,10 +40,6 @@ const state = {
   watchTimer: null,
   playbackTimer: null,
   playbackRenderTimer: null,
-  liveCaptureTimer: null,
-  liveCaptureBuffer: [],
-  liveCaptureLastText: '',
-  liveCaptureActive: false,
   trackCache: new Map(),
   history: [],
   bilingualLayout: 'stacked',
@@ -156,7 +152,6 @@ document.addEventListener('DOMContentLoaded', () => {
 window.addEventListener('beforeunload', () => {
   stopActiveTabWatcher();
   stopPlaybackWatcher();
-  stopLiveCaptureWatcher();
 });
 
 refreshBtn?.addEventListener('click', () => loadTracks({ force: true }));
@@ -191,7 +186,6 @@ sourceTrackSelectEl?.addEventListener('change', async (event) => {
   state.rawSourceCues = null;
   state.rawTranslatedCues = null;
   state.transcript = null;
-  stopLiveCaptureWatcher();
   state.trackCache.clear();
   rebuildTargetLanguageOptions();
   updateSubtitleBadge();
@@ -1025,14 +1019,10 @@ function cloneData(value) {
 function getTrackCacheKey(track) {
   return JSON.stringify({
     videoId: state.videoId || '',
-    platform: track.platform || state.currentPlatform || '',
-    fetchStrategy: track.fetchStrategy || '',
     languageCode: track.languageCode || '',
     sourceLanguageCode: track.sourceLanguageCode || '',
     targetLanguageCode: track.targetLanguageCode || '',
     vssId: track.vssId || '',
-    textTrackIndex: Number.isInteger(Number(track.textTrackIndex)) ? Number(track.textTrackIndex) : -1,
-    domTrackIndex: Number.isInteger(Number(track.domTrackIndex)) ? Number(track.domTrackIndex) : -1,
     isTranslation: Boolean(track.isTranslation),
   });
 }
@@ -1124,9 +1114,7 @@ function setSubtitleBadge(text, className) {
 function resolveBadgeLabel() {
   const track = state.sourceTracks[state.selectedSourceIndex];
   if (!track) return 'Waiting';
-  if (state.currentPlatform === PLATFORM_NETFLIX) {
-    return track.fetchStrategy === 'liveCapture' ? 'Live capture' : 'Netflix track';
-  }
+  if (state.currentPlatform === PLATFORM_NETFLIX) return 'Netflix track';
   if (state.selectedSourceIndex === state.originalTrackIndex && !track.isAuto) return 'Original track';
   if (track.isAuto) return 'Auto-generated';
   return 'Available';
@@ -1135,7 +1123,7 @@ function resolveBadgeLabel() {
 function resolveBadgeClass() {
   const track = state.sourceTracks[state.selectedSourceIndex];
   if (!track) return 'is-idle';
-  if (state.currentPlatform === PLATFORM_NETFLIX) return track.fetchStrategy === 'liveCapture' ? 'is-available' : 'is-available';
+  if (state.currentPlatform === PLATFORM_NETFLIX) return 'is-available';
   if (track.isAuto) return 'is-auto';
   return 'is-available';
 }
@@ -1146,7 +1134,7 @@ function updateSubtitleBadge() {
 
 function renderEmptyPreview(message) {
   if (!transcriptPreviewEl) return;
-  if (!state.transcript?.cues?.length && !state.liveCaptureActive) {
+  if (!state.transcript?.cues?.length) {
     stopPlaybackWatcher();
     resetPlaybackState();
   }
@@ -1251,7 +1239,6 @@ async function loadTracks(options = {}) {
   state.transcript = null;
   state.rawSourceCues = null;
   state.rawTranslatedCues = null;
-  stopLiveCaptureWatcher();
   state.trackCache.clear();
   resetSearchUi();
   setDebug([]);
@@ -1389,7 +1376,6 @@ async function loadSelectedTrack() {
   setActionsEnabled(false);
   setLoading(true);
   stopPlaybackWatcher();
-  stopLiveCaptureWatcher();
   closeExportMenu();
   resetSearchUi();
   renderEmptyPreview('Đang tải subtitle...');
@@ -1399,17 +1385,6 @@ async function loadSelectedTrack() {
   try {
     const sourceResult = await fetchTrackWithCache(sourceRequest);
     setDebug(sourceResult?.debug || []);
-
-    if (
-      state.currentPlatform === PLATFORM_NETFLIX &&
-      (sourceRequest.fetchStrategy === 'liveCapture' || sourceResult?.liveCaptureOnly)
-    ) {
-      state.transcript = null;
-      state.rawSourceCues = [];
-      state.rawTranslatedCues = [];
-      await startNetflixLiveCaptureWatcher(sourceResult?.error || 'Đang live capture subtitle Netflix đang hiển thị.');
-      return;
-    }
 
     if (!sourceResult?.ok || !Array.isArray(sourceResult.cues) || !sourceResult.cues.length) {
       state.transcript = null;
@@ -1674,12 +1649,7 @@ function renderFromRawCues() {
 
   setActionsEnabled(true);
   renderTranscriptPreview();
-  if (state.liveCaptureActive) {
-    stopPlaybackWatcher();
-    syncActiveCueFromPlayback({ scroll: state.playbackIsPlaying });
-  } else {
-    startPlaybackWatcher();
-  }
+  startPlaybackWatcher();
   pushHistoryItem().catch(() => {});
 
   if (!(outputMode === 'bilingual' && translationSelected && (!translatedCleaned || !translatedCleaned.length))) {
@@ -2094,93 +2064,6 @@ async function exportSelectedRange(type) {
   }
 }
 
-
-function normalizeLiveCaptureText(text) {
-  return String(text || '')
-    .replace(/\u200b/g, '')
-    .replace(/\r/g, '')
-    .replace(/\s+\n/g, '\n')
-    .replace(/\n\s+/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
-}
-
-function finalizeLastLiveCaptureCue(endMs) {
-  const last = state.liveCaptureBuffer[state.liveCaptureBuffer.length - 1];
-  if (!last) return;
-  const fallbackEnd = last.endMs || (last.startMs + 1200);
-  last.endMs = Math.max(Number(endMs) || 0, fallbackEnd, last.startMs + 120);
-}
-
-function commitLiveCaptureBuffer() {
-  state.rawSourceCues = state.liveCaptureBuffer.map((cue) => ({ ...cue }));
-  state.rawTranslatedCues = [];
-  renderFromRawCues();
-}
-
-function stopLiveCaptureWatcher() {
-  if (state.liveCaptureTimer) {
-    clearInterval(state.liveCaptureTimer);
-    state.liveCaptureTimer = null;
-  }
-  state.liveCaptureActive = false;
-  state.liveCaptureLastText = '';
-}
-
-async function startNetflixLiveCaptureWatcher(reason = '') {
-  stopLiveCaptureWatcher();
-  stopPlaybackWatcher();
-  state.liveCaptureActive = true;
-  state.liveCaptureBuffer = Array.isArray(state.rawSourceCues) ? state.rawSourceCues.map((cue) => ({ ...cue })) : [];
-  state.liveCaptureLastText = state.liveCaptureBuffer[state.liveCaptureBuffer.length - 1]?.text || '';
-  setSubtitleBadge('Live capture', 'is-available');
-  setPreviewMeta('Live capture');
-  if (!state.liveCaptureBuffer.length) {
-    renderEmptyPreview('Đang live capture subtitle Netflix đang hiển thị.');
-  }
-  setStatus(reason || 'Đang live capture subtitle Netflix đang hiển thị.');
-  state.liveCaptureTimer = window.setInterval(async () => {
-    try {
-      const snapshot = await executeInPage(pageGetNetflixLiveSnapshot, []);
-      if (!snapshot?.ok) return;
-      state.lastPlaybackSnapshotAtMs = Date.now();
-      state.playbackBaseMs = Math.max(0, Number(snapshot.currentTimeMs) || 0);
-      state.playbackSyncPerfMs = performance.now();
-      state.playbackRate = Math.max(0.1, Number(snapshot.playbackRate) || 1);
-      state.playbackIsPlaying = Boolean(snapshot.isPlaying);
-      state.playbackTimeMs = state.playbackBaseMs;
-      const text = normalizeLiveCaptureText(snapshot.text);
-      const timeMs = Math.max(0, Number(snapshot.currentTimeMs) || 0);
-      const last = state.liveCaptureBuffer[state.liveCaptureBuffer.length - 1];
-
-      if (!text) {
-        if (state.liveCaptureLastText) {
-          finalizeLastLiveCaptureCue(timeMs);
-          state.liveCaptureLastText = '';
-          commitLiveCaptureBuffer();
-        }
-        syncActiveCueFromPlayback({ scroll: state.playbackIsPlaying });
-        return;
-      }
-
-      if (!last || state.liveCaptureLastText !== text) {
-        finalizeLastLiveCaptureCue(timeMs);
-        state.liveCaptureBuffer.push({ startMs: timeMs, endMs: timeMs + 900, text });
-        state.liveCaptureLastText = text;
-        commitLiveCaptureBuffer();
-        setStatus('Đang live capture subtitle Netflix đang hiển thị.');
-        return;
-      }
-
-      last.endMs = Math.max(last.endMs || 0, timeMs + 120);
-      syncActiveCueFromPlayback({ scroll: state.playbackIsPlaying });
-    } catch {
-      // ignore live capture watcher errors
-    }
-  }, 150);
-}
-
 function pageGetPlaybackSnapshot() {
   try {
     const host = location.hostname || '';
@@ -2229,56 +2112,6 @@ function pageSeekToTime(startMs) {
     return { ok: false, error: 'Player hiện tại không hỗ trợ seek.' };
   } catch (error) {
     return { ok: false, error: error?.message || 'Không tua được video.' };
-  }
-}
-
-
-function pageGetNetflixLiveSnapshot() {
-  try {
-    const normalizeText = (value) => String(value || '')
-      .replace(/\u200b/g, '')
-      .replace(/\r/g, '')
-      .replace(/\s+\n/g, '\n')
-      .replace(/\n\s+/g, '\n')
-      .replace(/\n{3,}/g, '\n\n')
-      .replace(/[ \t]{2,}/g, ' ')
-      .trim();
-
-    const video = document.querySelector('video');
-    if (!video) return { ok: false, error: 'Không tìm thấy video Netflix.' };
-
-    const selectors = [
-      '[data-uia=\"player-subtitle\"]',
-      '[data-uia=\"subtitle-text\"]',
-      '.player-timedtext',
-      '.player-timedtext-text-container',
-      '.player-timedtext-text',
-      '[class*=\"timedtext\"] [class*=\"text\"]',
-      '.watch-video--player-view [class*=\"timedtext\"]',
-      '.watch-video--player-view [data-uia*=\"subtitle\"]',
-    ];
-
-    let text = '';
-    for (const selector of selectors) {
-      const nodes = Array.from(document.querySelectorAll(selector));
-      const parts = nodes
-        .map((node) => normalizeText(node.innerText || node.textContent || ''))
-        .filter(Boolean);
-      if (parts.length) {
-        text = parts.join('\n');
-        break;
-      }
-    }
-
-    return {
-      ok: true,
-      currentTimeMs: Math.round(Number(video.currentTime || 0) * 1000),
-      playbackRate: Number(video.playbackRate || 1) || 1,
-      isPlaying: !video.paused && !video.ended && Number(video.readyState || 0) >= 2,
-      text,
-    };
-  } catch (error) {
-    return { ok: false, error: error?.message || 'Không đọc được live subtitle Netflix.' };
   }
 }
 
@@ -2405,29 +2238,8 @@ function pageGetMetadata(options = {}) {
     }
 
     const activeIndex = sourceTracks.findIndex((track) => track.mode === 'showing' || track.mode === 'hidden' || /active/.test(track.label));
-    const liveLanguage = sourceTracks[activeIndex >= 0 ? activeIndex : 0]?.languageCode || 'live';
-    sourceTracks.push({
-      index: sourceTracks.length,
-      platform: 'netflix',
-      fetchStrategy: 'liveCapture',
-      textTrackIndex: -1,
-      domTrackIndex: -1,
-      label: sourceTracks.length ? `Live capture [${liveLanguage}]` : 'Live capture',
-      languageCode: liveLanguage,
-      baseUrl: '',
-      kind: 'subtitles',
-      name: 'Live capture',
-      vssId: '',
-      isAuto: false,
-      isTranslatable: false,
-      isTranslation: false,
-      sourceLanguageCode: liveLanguage,
-      sourceName: 'Live capture',
-      mode: activeIndex >= 0 ? 'hidden' : 'disabled',
-    });
-
-    const defaultSourceIndex = activeIndex >= 0 ? activeIndex : (sourceTracks.length ? sourceTracks.length - 1 : -1);
-    const originalLanguageCode = sourceTracks[Math.max(0, activeIndex)]?.languageCode || '';
+    const defaultSourceIndex = activeIndex >= 0 ? activeIndex : (sourceTracks.length ? 0 : -1);
+    const originalLanguageCode = sourceTracks[defaultSourceIndex]?.languageCode || '';
 
     return {
       ok: true,
@@ -2442,7 +2254,7 @@ function pageGetMetadata(options = {}) {
       originalTrackIndex: defaultSourceIndex,
       originalLanguageCode,
       audioLanguageCode: '',
-      defaultTrackReason: defaultSourceIndex >= 0 ? (activeIndex >= 0 ? 'track subtitle đang bật / đầu tiên' : 'live capture fallback') : '',
+      defaultTrackReason: defaultSourceIndex >= 0 ? 'track subtitle đang bật / đầu tiên' : '',
       supportsTranslation: false,
       debug,
     };
@@ -3119,10 +2931,6 @@ async function pageFetchTrack(track) {
   }
 
   async function fetchNetflixTrack(item) {
-    if (item?.fetchStrategy === 'liveCapture') {
-      return { ok: false, liveCaptureOnly: true, error: 'Đã chọn chế độ live capture Netflix.', debug };
-    }
-
     const video = document.querySelector('video');
     if (!video) {
       return { ok: false, error: 'Không tìm thấy player Netflix.', debug };
@@ -3218,7 +3026,6 @@ async function pageFetchTrack(track) {
       if (fromTrackElement) return fromTrackElement;
       return {
         ok: false,
-        liveCaptureOnly: true,
         error: item?.baseUrl ? 'Netflix có URL phụ đề fallback nhưng chưa đọc được nội dung từ URL đó.' : 'Netflix chưa expose subtitle track nào. Hãy bật subtitle trong player Netflix rồi refresh.',
         debug,
       };
@@ -3254,7 +3061,6 @@ async function pageFetchTrack(track) {
       }
       return {
         ok: false,
-        liveCaptureOnly: true,
         error: 'Netflix chưa cho extension đọc danh sách cues của track này. Hãy bật đúng subtitle, phát video vài giây rồi refresh.',
         debug,
       };
