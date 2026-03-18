@@ -1,33 +1,32 @@
 {
   "manifest_version": 3,
-  "name": "Subtitle Grabber",
-  "version": "4.7.0",
-  "description": "Per-site profile memory release: giữ lõi YouTube + Netflix + pin, thêm nhớ riêng settings cho từng nền tảng và diagnostics rõ hơn.",
+  "name": "YT Subtitle Grabber",
+  "version": "4.12.0",
+  "description": "Subtitle workspace with tighter pin UI, smarter YouTube time-sync, and an upgraded Netflix study flow inspired by Language Reactor.",
   "minimum_chrome_version": "114",
   "permissions": [
     "activeTab",
     "downloads",
+    "tabs",
     "scripting",
-    "storage",
-    "tabs"
+    "storage"
   ],
   "host_permissions": [
+    "https://www.youtube.com/*",
     "https://m.youtube.com/*",
     "https://music.youtube.com/*",
-    "https://netflix.com/*",
-    "https://www.netflix.com/*",
-    "https://www.youtube.com/*"
+    "https://www.netflix.com/*"
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
-    "default_title": "Subtitle Grabber",
+    "default_title": "YT Subtitle Grabber",
     "default_popup": "popup.html"
   },
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  },
-  "background": {
-    "service_worker": "background.js"
   }
 }

@@ -1,21 +1,24 @@
 const STORAGE_KEY = 'ytSubtitleGrabberSettingsV8';
 const HISTORY_KEY = 'ytSubtitleGrabberRecentHistoryV1';
+const PIN_PREFS_KEY = 'ytSubtitleGrabberPinPrefsV1';
 const ORIGINAL_LANGUAGE_SENTINEL = '__original__';
 const MAX_HISTORY_ITEMS = 10;
 const WATCH_INTERVAL_MS = 1600;
-const PLAYBACK_SNAPSHOT_POLL_MS = 140;
-const PLAYBACK_RENDER_TICK_MS = 33;
-const PLAYBACK_STALE_AFTER_MS = 900;
-const ACTIVE_CUE_PRE_ROLL_MS = 45;
-const ACTIVE_CUE_POST_ROLL_MS = 100;
-const PLATFORM_YOUTUBE = 'youtube';
-const PLATFORM_NETFLIX = 'netflix';
+
+const DEFAULT_PIN_PREFS = {
+  default: { width: 780, height: 560, mode: 'dual', syncPreset: 'smooth' },
+  youtube: { width: 780, height: 560, mode: 'dual', syncPreset: 'smooth' },
+  netflix: { width: 920, height: 620, mode: 'review', syncPreset: 'smooth' },
+};
+
+const SYNC_PRESET_MAP = {
+  accurate: { label: 'Accurate', youtubeLeadMs: 60 },
+  smooth: { label: 'Smooth', youtubeLeadMs: 180 },
+  aggressive: { label: 'Aggressive', youtubeLeadMs: 300 },
+};
 
 const state = {
   tab: null,
-  currentPlatform: '',
-  thumbnailUrl: '',
-  supportsTranslation: true,
   videoTitle: '',
   channelName: '',
   videoId: '',
@@ -36,14 +39,9 @@ const state = {
   searchMatches: [],
   activeSearchIndex: -1,
   lastActiveUrl: '',
+  activePlatform: 'default',
   isLoading: false,
   watchTimer: null,
-  playbackTimer: null,
-  playbackRenderTimer: null,
-  liveCaptureTimer: null,
-  liveCaptureBuffer: [],
-  liveCaptureLastText: '',
-  liveCaptureActive: false,
   trackCache: new Map(),
   history: [],
   bilingualLayout: 'stacked',
@@ -51,14 +49,6 @@ const state = {
   originalLanguageCode: '',
   audioLanguageCode: '',
   defaultTrackReason: '',
-  playbackTimeMs: 0,
-  playbackBaseMs: 0,
-  playbackSyncPerfMs: 0,
-  playbackRate: 1,
-  playbackIsPlaying: false,
-  lastPlaybackSnapshotAtMs: 0,
-  activeCueIndex: -1,
-  lastScrolledCueIndex: -1,
   settings: {
     outputMode: 'original',
     dedupeRepeats: true,
@@ -68,9 +58,9 @@ const state = {
     bilingualLayout: 'stacked',
     preferOriginalTrack: true,
     autoFetchOnSelectionChange: true,
-    autoScrollLive: true,
-    syncOffsetMs: 0,
+    youtubeLeadMs: 180,
   },
+  pinPrefs: JSON.parse(JSON.stringify(DEFAULT_PIN_PREFS)),
 };
 
 const statusEl = document.getElementById('status');
@@ -92,6 +82,20 @@ const debugEl = document.getElementById('debug');
 const refreshBtn = document.getElementById('refreshBtn');
 const settingsBtn = document.getElementById('settingsBtn');
 const getSubtitlesBtn = document.getElementById('getSubtitlesBtn');
+const pinBtn = document.getElementById('pinBtn');
+const siteProfileChipEl = document.getElementById('siteProfileChip');
+const pinModeChipEl = document.getElementById('pinModeChip');
+const reopenPinBtn = document.getElementById('reopenPinBtn');
+const syncPresetButtons = {
+  accurate: [document.getElementById('syncPresetAccurateBtn'), document.getElementById('footerSyncPresetAccurateBtn')].filter(Boolean),
+  smooth: [document.getElementById('syncPresetSmoothBtn'), document.getElementById('footerSyncPresetSmoothBtn')].filter(Boolean),
+  aggressive: [document.getElementById('syncPresetAggressiveBtn'), document.getElementById('footerSyncPresetAggressiveBtn')].filter(Boolean),
+};
+const quickPinModeButtons = {
+  compact: document.getElementById('pinModeCompactQuickBtn'),
+  dual: document.getElementById('pinModeDualQuickBtn'),
+  review: document.getElementById('pinModeReviewQuickBtn'),
+};
 
 const copyBtn = document.getElementById('copyBtn');
 const copyTextBtn = document.getElementById('copyTextBtn');
@@ -108,7 +112,6 @@ const settingsPanelEl = document.getElementById('settingsPanel');
 const historyPanelEl = document.getElementById('historyPanel');
 const settingsCloseBtn = document.getElementById('settingsCloseBtn');
 const historyBtn = document.getElementById('historyBtn');
-const pinBtn = document.getElementById('pinBtn');
 const historyCloseBtn = document.getElementById('historyCloseBtn');
 const clearHistoryBtn = document.getElementById('clearHistoryBtn');
 const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
@@ -119,14 +122,16 @@ const channelNameEl = document.getElementById('channelName');
 const trackMetaEl = document.getElementById('trackMeta');
 const subtitleBadgeEl = document.getElementById('subtitleBadge');
 const lineCountBadgeEl = document.getElementById('lineCountBadge');
+const platformBadgeEl = document.getElementById('platformBadge');
+const appFrameEl = document.querySelector('.app-frame');
+const heroControlsGridEl = document.querySelector('.hero-controls-grid');
+const selectionCardEl = document.querySelector('.selection-card');
+const primaryButtonLabelEl = document.querySelector('.primary-btn-label');
 
 const searchInputEl = document.getElementById('searchInput');
 const searchInfoEl = document.getElementById('searchInfo');
 const searchPrevBtn = document.getElementById('searchPrevBtn');
 const searchNextBtn = document.getElementById('searchNextBtn');
-const playbackStatusChipEl = document.getElementById('playbackStatusChip');
-const playbackTimeChipEl = document.getElementById('playbackTimeChip');
-const activeCueChipEl = document.getElementById('activeCueChip');
 
 const rangeStartInputEl = document.getElementById('rangeStartInput');
 const rangeEndInputEl = document.getElementById('rangeEndInput');
@@ -140,9 +145,6 @@ const historyCountEl = document.getElementById('historyCount');
 const selectionModeFullBtn = document.getElementById('selectionModeFullBtn');
 const selectionModeCustomBtn = document.getElementById('selectionModeCustomBtn');
 const selectionCustomFieldsEl = document.getElementById('selectionCustomFields');
-const autoScrollLiveCheckboxEl = document.getElementById('autoScrollLiveCheckbox');
-const syncOffsetRangeEl = document.getElementById('syncOffsetRange');
-const syncOffsetValueEl = document.getElementById('syncOffsetValue');
 
 document.addEventListener('DOMContentLoaded', () => {
   init().catch((error) => {
@@ -153,45 +155,27 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-window.addEventListener('beforeunload', () => {
-  stopActiveTabWatcher();
-  stopPlaybackWatcher();
-  stopLiveCaptureWatcher();
-});
+window.addEventListener('beforeunload', stopActiveTabWatcher);
 
 refreshBtn?.addEventListener('click', () => loadTracks({ force: true }));
-getSubtitlesBtn?.addEventListener('click', () => loadSelectedTrack());
+getSubtitlesBtn?.addEventListener('click', () => handlePrimaryAction());
+pinBtn?.addEventListener('click', () => openPinnedWindow());
+reopenPinBtn?.addEventListener('click', () => openPinnedWindow({ reopen: true }));
+Object.entries(syncPresetButtons).forEach(([preset, buttons]) => buttons.forEach((button) => button?.addEventListener('click', () => applySyncPreset(preset))));
+Object.entries(quickPinModeButtons).forEach(([mode, button]) => button?.addEventListener('click', () => applyPinModePreset(mode)));
 settingsBtn?.addEventListener('click', toggleSettingsPanel);
 historyBtn?.addEventListener('click', toggleHistoryPanel);
-pinBtn?.addEventListener('click', openPinnedWindow);
 settingsCloseBtn?.addEventListener('click', closeSettingsPanel);
 historyCloseBtn?.addEventListener('click', closeHistoryPanel);
 clearHistoryBtn?.addEventListener('click', clearHistory);
 selectionModeFullBtn?.addEventListener('click', () => setSelectionMode('full'));
 selectionModeCustomBtn?.addEventListener('click', () => setSelectionMode('custom'));
 
-transcriptPreviewEl?.addEventListener('click', handleTranscriptLineClick);
-autoScrollLiveCheckboxEl?.addEventListener('change', async (event) => {
-  state.settings.autoScrollLive = Boolean(event.target.checked);
-  await saveSettings();
-});
-syncOffsetRangeEl?.addEventListener('input', () => {
-  state.settings.syncOffsetMs = Number(syncOffsetRangeEl.value) || 0;
-  updateSyncOffsetUi();
-  syncActiveCueFromPlayback({ scroll: false });
-});
-syncOffsetRangeEl?.addEventListener('change', async () => {
-  state.settings.syncOffsetMs = Number(syncOffsetRangeEl.value) || 0;
-  updateSyncOffsetUi();
-  await saveSettings();
-});
-
 sourceTrackSelectEl?.addEventListener('change', async (event) => {
   state.selectedSourceIndex = Number(event.target.value);
   state.rawSourceCues = null;
   state.rawTranslatedCues = null;
   state.transcript = null;
-  stopLiveCaptureWatcher();
   state.trackCache.clear();
   rebuildTargetLanguageOptions();
   updateSubtitleBadge();
@@ -357,16 +341,16 @@ historyListEl?.addEventListener('click', async (event) => {
 
 async function init() {
   await loadSettings();
+  await loadPinPrefs();
   await loadHistory();
   applySettingsToUi();
+  setPlatformLayout('default');
   renderHistory();
   syncTabUi();
   syncSelectionModeUi();
   hydrateVideoCardIdle();
   resetSearchUi();
-  updateSyncOffsetUi();
-  updatePlaybackIndicator(null);
-  renderEmptyPreview('Mở một video YouTube hoặc Netflix rồi bấm refresh hoặc Get subtitles.');
+  renderEmptyPreview('Mở một video YouTube rồi bấm refresh hoặc Get subtitles.');
   startActiveTabWatcher();
   await loadTracks({ force: true, fetchNow: true });
 }
@@ -537,8 +521,6 @@ function setLoading(isLoading) {
   if (timestampToggleEl) timestampToggleEl.disabled = state.isLoading;
   if (preferOriginalTrackCheckboxEl) preferOriginalTrackCheckboxEl.disabled = state.isLoading;
   if (autoFetchOnChangeCheckboxEl) autoFetchOnChangeCheckboxEl.disabled = state.isLoading;
-  if (autoScrollLiveCheckboxEl) autoScrollLiveCheckboxEl.disabled = state.isLoading;
-  if (syncOffsetRangeEl) syncOffsetRangeEl.disabled = state.isLoading;
 
   if (state.isLoading) {
     setPreviewMeta('Fetching');
@@ -638,209 +620,6 @@ function stopActiveTabWatcher() {
   }
 }
 
-function detectPlatformFromUrl(url) {
-  try {
-    const parsed = new URL(String(url || ''));
-    const host = parsed.hostname || '';
-    if (((host === 'www.youtube.com' || host === 'm.youtube.com' || host === 'music.youtube.com')) && (parsed.pathname === '/watch' || parsed.pathname.startsWith('/shorts/'))) {
-      return PLATFORM_YOUTUBE;
-    }
-    if (/(^|\.)netflix\.com$/.test(host) && parsed.pathname.startsWith('/watch/')) {
-      return PLATFORM_NETFLIX;
-    }
-  } catch {}
-  return '';
-}
-
-function platformLabel(platform) {
-  if (platform === PLATFORM_NETFLIX) return 'Netflix';
-  if (platform === PLATFORM_YOUTUBE) return 'YouTube';
-  return 'Video';
-}
-
-function extractNetflixVideoIdFromUrl(url) {
-  try {
-    const parsed = new URL(String(url || ''));
-    if (parsed.pathname.startsWith('/watch/')) {
-      return parsed.pathname.split('/watch/')[1]?.split(/[/?#]/)[0] || '';
-    }
-  } catch {}
-  return '';
-}
-
-function updateSyncOffsetUi() {
-  const value = Math.max(-500, Math.min(500, Number(state.settings.syncOffsetMs) || 0));
-  if (syncOffsetRangeEl) syncOffsetRangeEl.value = String(value);
-  if (syncOffsetValueEl) {
-    syncOffsetValueEl.textContent = value === 0 ? '0 ms' : `${value > 0 ? '+' : ''}${value} ms`;
-  }
-}
-
-function resetPlaybackState() {
-  state.playbackTimeMs = 0;
-  state.playbackBaseMs = 0;
-  state.playbackSyncPerfMs = 0;
-  state.playbackRate = 1;
-  state.playbackIsPlaying = false;
-  state.lastPlaybackSnapshotAtMs = 0;
-  state.activeCueIndex = -1;
-  state.lastScrolledCueIndex = -1;
-  updatePlaybackIndicator(null);
-}
-
-function updatePlaybackIndicator(snapshot) {
-  if (playbackStatusChipEl) {
-    playbackStatusChipEl.textContent = snapshot ? (state.playbackIsPlaying ? 'Playing' : 'Paused') : 'Sync idle';
-  }
-  if (playbackTimeChipEl) {
-    playbackTimeChipEl.textContent = formatTimestamp(state.playbackTimeMs || 0, ',');
-  }
-  if (activeCueChipEl) {
-    activeCueChipEl.textContent = state.activeCueIndex >= 0 ? `Cue ${state.activeCueIndex + 1}` : 'Cue -';
-  }
-}
-
-function getEstimatedPlaybackTimeMs() {
-  if (!state.lastPlaybackSnapshotAtMs) return Math.max(0, Number(state.playbackTimeMs) || 0);
-  if (!state.playbackIsPlaying) return Math.max(0, Number(state.playbackBaseMs) || 0);
-  const elapsed = Math.max(0, performance.now() - (Number(state.playbackSyncPerfMs) || 0));
-  return Math.max(0, Math.round((Number(state.playbackBaseMs) || 0) + elapsed * (Number(state.playbackRate) || 1)));
-}
-
-function resolveCueIndexByTime(timeMs) {
-  const cues = state.transcript?.cues;
-  if (!Array.isArray(cues) || !cues.length) return -1;
-
-  const adjustedTimeMs = Math.max(0, Math.round(Number(timeMs) || 0) + (Number(state.settings.syncOffsetMs) || 0));
-  const activeIndex = Number(state.activeCueIndex);
-  const withinCue = (cue) => adjustedTimeMs >= cue.startMs - ACTIVE_CUE_PRE_ROLL_MS && adjustedTimeMs <= cue.endMs + ACTIVE_CUE_POST_ROLL_MS;
-
-  if (Number.isInteger(activeIndex) && activeIndex >= 0 && activeIndex < cues.length) {
-    const current = cues[activeIndex];
-    if (current && withinCue(current)) return activeIndex;
-    const nextCue = cues[activeIndex + 1];
-    if (nextCue && withinCue(nextCue)) return activeIndex + 1;
-    const prevCue = cues[activeIndex - 1];
-    if (prevCue && withinCue(prevCue)) return activeIndex - 1;
-  }
-
-  let lo = 0;
-  let hi = cues.length - 1;
-  let candidate = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (cues[mid].startMs <= adjustedTimeMs + ACTIVE_CUE_PRE_ROLL_MS) {
-      candidate = mid;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  if (candidate >= 0 && withinCue(cues[candidate])) return candidate;
-  if (candidate + 1 < cues.length && withinCue(cues[candidate + 1])) return candidate + 1;
-  return -1;
-}
-
-function applyLiveCueHighlight(scroll = false) {
-  if (!transcriptPreviewEl || state.previewTab === 'srt') return;
-  for (const node of transcriptPreviewEl.querySelectorAll('.transcript-line.is-live')) {
-    if (Number(node.dataset.index) !== state.activeCueIndex) node.classList.remove('is-live');
-  }
-  if (state.activeCueIndex < 0) return;
-  const targetEl = transcriptPreviewEl.querySelector(`.transcript-line[data-index="${state.activeCueIndex}"]`);
-  if (!targetEl) return;
-  targetEl.classList.add('is-live');
-  if (scroll && state.settings.autoScrollLive !== false && !state.searchQuery.trim() && state.lastScrolledCueIndex !== state.activeCueIndex) {
-    targetEl.scrollIntoView({ block: 'center', behavior: state.playbackIsPlaying ? 'smooth' : 'auto' });
-    state.lastScrolledCueIndex = state.activeCueIndex;
-  }
-}
-
-function setActiveCueIndex(index, { scroll = false } = {}) {
-  const nextIndex = Number.isInteger(index) ? index : -1;
-  if (nextIndex !== state.activeCueIndex) {
-    state.activeCueIndex = nextIndex;
-    if (!scroll) state.lastScrolledCueIndex = -1;
-  }
-  applyLiveCueHighlight(scroll);
-}
-
-function syncActiveCueFromPlayback({ scroll = false } = {}) {
-  if (!state.transcript?.cues?.length) {
-    updatePlaybackIndicator(null);
-    return;
-  }
-  if (state.lastPlaybackSnapshotAtMs && Date.now() - state.lastPlaybackSnapshotAtMs > PLAYBACK_STALE_AFTER_MS) {
-    state.playbackIsPlaying = false;
-  }
-  state.playbackTimeMs = getEstimatedPlaybackTimeMs();
-  const nextCueIndex = resolveCueIndexByTime(state.playbackTimeMs);
-  setActiveCueIndex(nextCueIndex, { scroll });
-  updatePlaybackIndicator({ isPlaying: state.playbackIsPlaying });
-}
-
-async function refreshPlaybackSnapshot({ scroll = false } = {}) {
-  if (!state.tab?.id || !state.transcript?.cues?.length) return;
-  const snapshot = await executeInPage(pageGetPlaybackSnapshot);
-  if (!snapshot?.ok) return;
-  state.lastPlaybackSnapshotAtMs = Date.now();
-  state.playbackBaseMs = Math.max(0, Number(snapshot.currentTimeMs) || 0);
-  state.playbackSyncPerfMs = performance.now();
-  state.playbackRate = Math.max(0.1, Number(snapshot.playbackRate) || 1);
-  state.playbackIsPlaying = Boolean(snapshot.isPlaying);
-  state.playbackTimeMs = state.playbackBaseMs;
-  const nextCueIndex = resolveCueIndexByTime(state.playbackTimeMs);
-  const shouldScroll = scroll || (state.playbackIsPlaying && nextCueIndex !== state.activeCueIndex);
-  setActiveCueIndex(nextCueIndex, { scroll: shouldScroll });
-  updatePlaybackIndicator(snapshot);
-}
-
-function startPlaybackWatcher() {
-  stopPlaybackWatcher();
-  if (!state.transcript?.cues?.length || !state.tab?.id) return;
-  refreshPlaybackSnapshot({ scroll: false }).catch(() => {});
-  state.playbackTimer = window.setInterval(() => {
-    refreshPlaybackSnapshot({ scroll: false }).catch(() => {});
-  }, PLAYBACK_SNAPSHOT_POLL_MS);
-  state.playbackRenderTimer = window.setInterval(() => {
-    syncActiveCueFromPlayback({ scroll: state.playbackIsPlaying });
-  }, PLAYBACK_RENDER_TICK_MS);
-}
-
-function stopPlaybackWatcher() {
-  if (state.playbackTimer) {
-    clearInterval(state.playbackTimer);
-    state.playbackTimer = null;
-  }
-  if (state.playbackRenderTimer) {
-    clearInterval(state.playbackRenderTimer);
-    state.playbackRenderTimer = null;
-  }
-}
-
-async function handleTranscriptLineClick(event) {
-  if (!state.transcript?.cues?.length || !transcriptPreviewEl || state.previewTab === 'srt') return;
-  const target = event.target instanceof Element ? event.target.closest('.transcript-line') : null;
-  if (!target) return;
-  const index = Number(target.dataset.index);
-  const cue = state.transcript.cues[index];
-  if (!cue) return;
-  try {
-    const seekResult = await executeInPage(pageSeekToTime, [cue.startMs]);
-    if (!seekResult?.ok) throw new Error(seekResult?.error || 'Seek thất bại.');
-    state.playbackBaseMs = cue.startMs;
-    state.playbackSyncPerfMs = performance.now();
-    state.lastPlaybackSnapshotAtMs = Date.now();
-    state.playbackTimeMs = cue.startMs;
-    setActiveCueIndex(index, { scroll: false });
-    updatePlaybackIndicator({ isPlaying: state.playbackIsPlaying });
-    setStatus(`Đã tua đến ${formatTimestamp(cue.startMs, ',')}.`);
-    window.setTimeout(() => refreshPlaybackSnapshot({ scroll: true }).catch(() => {}), 120);
-  } catch (error) {
-    setStatus(error?.message || 'Không tua được video.');
-  }
-}
-
 async function loadSettings() {
   try {
     const stored = await chrome.storage.local.get(STORAGE_KEY);
@@ -857,8 +636,7 @@ async function loadSettings() {
   state.bilingualLayout = state.settings.bilingualLayout || 'stacked';
   state.settings.preferOriginalTrack = state.settings.preferOriginalTrack !== false;
   state.settings.autoFetchOnSelectionChange = state.settings.autoFetchOnSelectionChange !== false;
-  state.settings.autoScrollLive = state.settings.autoScrollLive !== false;
-  state.settings.syncOffsetMs = Math.max(-500, Math.min(500, Number(state.settings.syncOffsetMs) || 0));
+  state.settings.youtubeLeadMs = Number.isFinite(Number(state.settings.youtubeLeadMs)) ? Number(state.settings.youtubeLeadMs) : 320;
 }
 
 async function saveSettings() {
@@ -868,6 +646,159 @@ async function saveSettings() {
     });
   } catch (error) {
     console.warn('Không lưu được settings:', error);
+  }
+}
+
+function detectPlatform(url) {
+  const raw = String(url || '');
+  if (/^https:\/\/(www|m|music)\.youtube\.com\/(watch|shorts)/.test(raw)) return 'youtube';
+  if (/^https:\/\/(www\.)?netflix\.com\/watch\//.test(raw)) return 'netflix';
+  return 'default';
+}
+
+async function loadPinPrefs() {
+  try {
+    const stored = await chrome.storage.local.get(PIN_PREFS_KEY);
+    const saved = stored?.[PIN_PREFS_KEY];
+    if (saved && typeof saved === 'object') {
+      state.pinPrefs = {
+        ...JSON.parse(JSON.stringify(DEFAULT_PIN_PREFS)),
+        ...saved,
+        youtube: { ...DEFAULT_PIN_PREFS.youtube, ...(saved.youtube || {}) },
+        netflix: { ...DEFAULT_PIN_PREFS.netflix, ...(saved.netflix || {}) },
+        default: { ...DEFAULT_PIN_PREFS.default, ...(saved.default || {}) },
+      };
+    }
+  } catch (error) {
+    console.warn('Không đọc được pin prefs:', error);
+  }
+}
+
+async function savePinPrefs() {
+  try {
+    await chrome.storage.local.set({ [PIN_PREFS_KEY]: state.pinPrefs });
+  } catch (error) {
+    console.warn('Không lưu được pin prefs:', error);
+  }
+}
+
+function getPlatformPrefs(platform = state.activePlatform || 'default') {
+  const key = state.pinPrefs[platform] ? platform : 'default';
+  return {
+    ...DEFAULT_PIN_PREFS.default,
+    ...(DEFAULT_PIN_PREFS[key] || {}),
+    ...(state.pinPrefs[key] || {}),
+  };
+}
+
+function updateSiteProfileUi() {
+  const platform = state.activePlatform || 'default';
+  const prefs = getPlatformPrefs(platform);
+  const preset = String(prefs.syncPreset || 'smooth');
+  const presetLabel = SYNC_PRESET_MAP[preset]?.label || 'Smooth';
+  const platformLabel = platform === 'youtube' ? 'YouTube' : platform === 'netflix' ? 'Netflix' : 'Default';
+  const modeLabel = prefs.mode ? prefs.mode.charAt(0).toUpperCase() + prefs.mode.slice(1) : 'Dual';
+
+  if (siteProfileChipEl) siteProfileChipEl.textContent = `Profile · ${platformLabel} · ${presetLabel}`;
+  if (pinModeChipEl) pinModeChipEl.textContent = `Pin · ${modeLabel}`;
+
+  Object.entries(quickPinModeButtons).forEach(([key, button]) => {
+    button?.classList.toggle('is-active', key === prefs.mode);
+    if (button) button.setAttribute('aria-pressed', String(key === prefs.mode));
+  });
+
+  Object.entries(syncPresetButtons).forEach(([key, buttons]) => {
+    buttons.forEach((button) => {
+      button?.classList.toggle('is-active', key === preset);
+      if (button) button.setAttribute('aria-pressed', String(key === preset));
+    });
+  });
+}
+
+function setPlatformLayout(platform = 'default') {
+  const resolved = ['youtube', 'netflix'].includes(String(platform)) ? String(platform) : 'default';
+
+  if (appFrameEl) {
+    appFrameEl.classList.remove('is-youtube', 'is-netflix', 'is-default');
+    appFrameEl.classList.add(`is-${resolved}`);
+  }
+
+  if (platformBadgeEl) {
+    platformBadgeEl.textContent = resolved === 'youtube' ? 'YouTube workspace' : resolved === 'netflix' ? 'Netflix live pin' : 'Unsupported tab';
+  }
+
+  if (primaryButtonLabelEl) {
+    primaryButtonLabelEl.textContent = resolved === 'netflix' ? 'Open live pin' : 'Get subtitles';
+  }
+
+  if (getSubtitlesBtn) {
+    getSubtitlesBtn.title = resolved === 'netflix' ? 'Mở cửa sổ pin cho Netflix' : 'Tải subtitle hiện tại';
+  }
+
+  if (heroControlsGridEl) heroControlsGridEl.toggleAttribute('hidden', resolved === 'netflix');
+  if (selectionCardEl) selectionCardEl.classList.toggle('hidden', resolved !== 'youtube');
+}
+
+function handlePrimaryAction() {
+  if (state.activePlatform === 'netflix') {
+    return openPinnedWindow();
+  }
+  return loadSelectedTrack();
+}
+
+async function applyPinModePreset(mode) {
+  const resolvedMode = ['compact', 'dual', 'review'].includes(String(mode)) ? String(mode) : 'dual';
+  const platform = state.activePlatform || detectPlatform(state.tab?.url) || 'default';
+  state.activePlatform = platform;
+  state.pinPrefs[platform] = {
+    ...getPlatformPrefs(platform),
+    mode: resolvedMode,
+  };
+
+  await savePinPrefs();
+  updateSiteProfileUi();
+  setStatus(`Đã lưu pin mode ${resolvedMode} cho ${platform === 'default' ? 'workspace mặc định' : platform}.`);
+}
+
+async function applySyncPreset(preset) {
+  const resolvedPreset = Object.prototype.hasOwnProperty.call(SYNC_PRESET_MAP, preset) ? preset : 'smooth';
+  const platform = state.activePlatform || detectPlatform(state.tab?.url) || 'default';
+  state.activePlatform = platform;
+  state.pinPrefs[platform] = {
+    ...getPlatformPrefs(platform),
+    syncPreset: resolvedPreset,
+  };
+
+  if (platform === 'youtube') {
+    state.settings.youtubeLeadMs = SYNC_PRESET_MAP[resolvedPreset].youtubeLeadMs;
+    await saveSettings();
+  }
+
+  await savePinPrefs();
+  updateSiteProfileUi();
+  setStatus(`Đã áp dụng preset ${SYNC_PRESET_MAP[resolvedPreset].label} cho ${platform === 'default' ? 'workspace mặc định' : platform}.`);
+}
+
+async function openPinnedWindow(options = {}) {
+  try {
+    const tab = await getActiveTab();
+    state.tab = tab;
+    const platform = detectPlatform(tab?.url);
+    const response = await chrome.runtime.sendMessage({
+      type: 'OPEN_PINNED_WINDOW',
+      tabId: tab?.id || null,
+      platform,
+      reopen: Boolean(options?.reopen),
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || 'Không mở được cửa sổ ghim.');
+    }
+
+    setStatus(response?.reused ? `Đã focus cửa sổ ghim cho ${platform === 'default' ? 'tab hiện tại' : platform}.` : `Đã mở cửa sổ ghim cho ${platform === 'default' ? 'tab hiện tại' : platform}.`);
+  } catch (error) {
+    console.error(error);
+    setStatus(error?.message || 'Không mở được cửa sổ ghim.');
   }
 }
 
@@ -956,8 +887,7 @@ function applySettingsToUi() {
   if (preferOriginalTrackCheckboxEl) preferOriginalTrackCheckboxEl.checked = Boolean(state.settings.preferOriginalTrack);
   if (autoFetchOnChangeCheckboxEl) autoFetchOnChangeCheckboxEl.checked = Boolean(state.settings.autoFetchOnSelectionChange);
   if (timestampToggleEl) timestampToggleEl.checked = Boolean(state.showTimestampInText);
-  if (autoScrollLiveCheckboxEl) autoScrollLiveCheckboxEl.checked = Boolean(state.settings.autoScrollLive);
-  updateSyncOffsetUi();
+  updateSiteProfileUi();
 }
 
 async function refreshRenderingAfterSettingChange() {
@@ -983,21 +913,8 @@ async function getActiveTab() {
   return tabs[0] || null;
 }
 
-async function openPinnedWindow() {
-  try {
-    const tab = state.tab || (await getActiveTab());
-    if (!tab?.id) throw new Error('Không tìm thấy tab đang mở.');
-    state.tab = tab;
-    const response = await chrome.runtime.sendMessage({ type: 'OPEN_PINNED_WINDOW', tabId: tab.id });
-    if (!response?.ok) throw new Error(response?.error || 'Không mở được cửa sổ ghim.');
-    setStatus('Đã mở cửa sổ ghim.');
-  } catch (error) {
-    setStatus(error?.message || 'Không mở được cửa sổ ghim.');
-  }
-}
-
 function isSupportedYoutubeUrl(url) {
-  return detectPlatformFromUrl(url) === PLATFORM_YOUTUBE;
+  return /^https:\/\/(www|m|music)\.youtube\.com\/(watch|shorts)/.test(url || '');
 }
 
 async function executeInPage(func, args = []) {
@@ -1025,14 +942,10 @@ function cloneData(value) {
 function getTrackCacheKey(track) {
   return JSON.stringify({
     videoId: state.videoId || '',
-    platform: track.platform || state.currentPlatform || '',
-    fetchStrategy: track.fetchStrategy || '',
     languageCode: track.languageCode || '',
     sourceLanguageCode: track.sourceLanguageCode || '',
     targetLanguageCode: track.targetLanguageCode || '',
     vssId: track.vssId || '',
-    textTrackIndex: Number.isInteger(Number(track.textTrackIndex)) ? Number(track.textTrackIndex) : -1,
-    domTrackIndex: Number.isInteger(Number(track.domTrackIndex)) ? Number(track.domTrackIndex) : -1,
     isTranslation: Boolean(track.isTranslation),
   });
 }
@@ -1054,8 +967,9 @@ async function fetchTrackWithCache(track) {
 }
 
 function hydrateVideoCardIdle() {
+  setPlatformLayout(state.activePlatform || 'default');
   if (videoTitleEl) videoTitleEl.textContent = 'Mở một video YouTube hoặc Netflix để bắt đầu';
-  if (channelNameEl) channelNameEl.textContent = 'Extension sẽ đọc video đang mở trong tab hiện tại';
+  if (channelNameEl) channelNameEl.textContent = 'Extension sẽ đọc tab đang mở và tối ưu giao diện theo từng nền tảng';
   if (trackMetaEl) trackMetaEl.textContent = 'Track gốc: -';
   setLineCount(0);
 
@@ -1064,17 +978,17 @@ function hydrateVideoCardIdle() {
     videoThumbEl.alt = '';
   }
 
-  resetPlaybackState();
   setSubtitleBadge('Waiting', 'is-idle');
   setPreviewMeta('Ready');
 }
 
 function hydrateVideoCard() {
+  setPlatformLayout(state.activePlatform || 'default');
   if (videoTitleEl) videoTitleEl.textContent = state.videoTitle || 'Subtitle Grabber';
-  if (channelNameEl) channelNameEl.textContent = state.channelName || platformLabel(state.currentPlatform);
+  if (channelNameEl) channelNameEl.textContent = state.channelName || (state.activePlatform === 'netflix' ? 'Netflix' : 'YouTube');
   updateTrackMeta();
 
-  const thumbnailUrl = state.thumbnailUrl || (state.currentPlatform === PLATFORM_YOUTUBE ? buildYoutubeThumbnailUrl(state.videoId) : '');
+  const thumbnailUrl = state.activePlatform === 'youtube' ? buildYoutubeThumbnailUrl(state.videoId) : '';
   if (videoThumbEl) {
     if (thumbnailUrl) {
       videoThumbEl.src = thumbnailUrl;
@@ -1084,7 +998,7 @@ function hydrateVideoCard() {
       };
     } else {
       videoThumbEl.removeAttribute('src');
-      videoThumbEl.alt = '';
+      videoThumbEl.alt = state.activePlatform === 'netflix' ? 'Netflix preview' : '';
     }
   }
 }
@@ -1092,13 +1006,18 @@ function hydrateVideoCard() {
 function updateTrackMeta() {
   if (!trackMetaEl) return;
 
+  if (state.activePlatform === 'netflix') {
+    const prefs = getPlatformPrefs('netflix');
+    const preset = SYNC_PRESET_MAP[prefs.syncPreset || 'smooth']?.label || 'Smooth';
+    trackMetaEl.textContent = `Pin mode: ${prefs.mode || 'dual'} · Sync: ${preset} · Netflix ưu tiên live/full transcript trong cửa sổ Pin`;
+    return;
+  }
+
   const selectedTrack = state.sourceTracks[state.selectedSourceIndex];
   const originalTrack = state.sourceTracks[state.originalTrackIndex];
-  const parts = [`Platform: ${platformLabel(state.currentPlatform)}`];
+  const parts = [];
 
-  if (state.originalLanguageCode || originalTrack?.languageCode) {
-    parts.push(`Gốc: ${state.originalLanguageCode || originalTrack?.languageCode || '-'}`);
-  }
+  parts.push(`Gốc: ${state.originalLanguageCode || originalTrack?.languageCode || '-'}`);
 
   if (state.audioLanguageCode) {
     parts.push(`Audio: ${state.audioLanguageCode}`);
@@ -1124,9 +1043,6 @@ function setSubtitleBadge(text, className) {
 function resolveBadgeLabel() {
   const track = state.sourceTracks[state.selectedSourceIndex];
   if (!track) return 'Waiting';
-  if (state.currentPlatform === PLATFORM_NETFLIX) {
-    return track.fetchStrategy === 'liveCapture' ? 'Live capture' : 'Netflix track';
-  }
   if (state.selectedSourceIndex === state.originalTrackIndex && !track.isAuto) return 'Original track';
   if (track.isAuto) return 'Auto-generated';
   return 'Available';
@@ -1135,7 +1051,6 @@ function resolveBadgeLabel() {
 function resolveBadgeClass() {
   const track = state.sourceTracks[state.selectedSourceIndex];
   if (!track) return 'is-idle';
-  if (state.currentPlatform === PLATFORM_NETFLIX) return track.fetchStrategy === 'liveCapture' ? 'is-available' : 'is-available';
   if (track.isAuto) return 'is-auto';
   return 'is-available';
 }
@@ -1146,10 +1061,6 @@ function updateSubtitleBadge() {
 
 function renderEmptyPreview(message) {
   if (!transcriptPreviewEl) return;
-  if (!state.transcript?.cues?.length && !state.liveCaptureActive) {
-    stopPlaybackWatcher();
-    resetPlaybackState();
-  }
   setLineCount(0);
   transcriptPreviewEl.classList.add('empty');
   transcriptPreviewEl.innerHTML = `<div class="empty-state"><p>${escapeHtml(message || 'Chưa có dữ liệu.')}</p></div>`;
@@ -1212,17 +1123,16 @@ function rebuildTargetLanguageOptions() {
   }
 
   targetLanguageSelectEl.value = state.selectedTargetLanguage;
-  targetLanguageSelectEl.disabled = !(sourceTrack?.isTranslatable && state.translationLanguages.length);
+  targetLanguageSelectEl.disabled = false;
 }
 
 function buildTrackRequest({ targetLanguage = ORIGINAL_LANGUAGE_SENTINEL } = {}) {
   const sourceTrack = state.sourceTracks[state.selectedSourceIndex];
   if (!sourceTrack) return null;
 
-  if (targetLanguage === ORIGINAL_LANGUAGE_SENTINEL || !sourceTrack.isTranslatable) {
+  if (targetLanguage === ORIGINAL_LANGUAGE_SENTINEL) {
     return {
       ...sourceTrack,
-      platform: state.currentPlatform,
       isTranslation: false,
       targetLanguageCode: sourceTrack.languageCode,
       effectiveLabel: sourceTrack.label,
@@ -1232,7 +1142,6 @@ function buildTrackRequest({ targetLanguage = ORIGINAL_LANGUAGE_SENTINEL } = {})
   const target = state.translationLanguages.find((item) => item.languageCode === targetLanguage);
   return {
     ...sourceTrack,
-    platform: state.currentPlatform,
     isTranslation: true,
     sourceLanguageCode: sourceTrack.languageCode,
     targetLanguageCode: targetLanguage,
@@ -1251,7 +1160,6 @@ async function loadTracks(options = {}) {
   state.transcript = null;
   state.rawSourceCues = null;
   state.rawTranslatedCues = null;
-  stopLiveCaptureWatcher();
   state.trackCache.clear();
   resetSearchUi();
   setDebug([]);
@@ -1267,26 +1175,31 @@ async function loadTracks(options = {}) {
     }
 
     state.lastActiveUrl = tab.url;
-    state.currentPlatform = detectPlatformFromUrl(tab.url);
+    state.activePlatform = detectPlatform(tab.url);
+    setPlatformLayout(state.activePlatform);
+    updateSiteProfileUi();
 
-    if (!state.currentPlatform) {
-      state.videoTitle = 'Mở một video YouTube hoặc Netflix để bắt đầu';
-      state.channelName = 'Extension sẽ đọc video đang mở trong tab hiện tại';
+    if (!isSupportedYoutubeUrl(tab.url)) {
+      state.videoTitle = state.activePlatform === 'netflix' ? sanitizeFilename(tab.title || 'Netflix') : 'Mở một video YouTube để bắt đầu';
+      state.channelName = state.activePlatform === 'netflix' ? 'Netflix live subtitle workspace' : 'Extension sẽ đọc video đang mở trong tab hiện tại';
       state.videoId = '';
-      state.thumbnailUrl = '';
       state.sourceTracks = [];
       state.translationLanguages = [];
       state.selectedSourceIndex = -1;
+      state.originalTrackIndex = -1;
+      state.originalLanguageCode = '';
+      state.audioLanguageCode = '';
+      state.defaultTrackReason = '';
       renderSourceTrackOptions();
       rebuildTargetLanguageOptions();
       hydrateVideoCard();
-      setSubtitleBadge('Waiting', 'is-idle');
-      setStatus('Hãy mở trang video YouTube (/watch, /shorts) hoặc Netflix (/watch/...).');
-      renderEmptyPreview('Không phải trang video được hỗ trợ.');
+      setSubtitleBadge(state.activePlatform === 'netflix' ? 'Netflix pin' : 'Waiting', state.activePlatform === 'netflix' ? 'is-available' : 'is-idle');
+      setStatus(state.activePlatform === 'netflix' ? 'Netflix dùng Pin làm workspace chính: mở live pin để theo dõi subtitle gọn hơn.' : 'Hãy mở video YouTube dạng /watch hoặc /shorts.');
+      renderEmptyPreview(state.activePlatform === 'netflix' ? 'Netflix hiện tối ưu theo dõi bằng cửa sổ Pin. Dùng Open live pin để xem live capture hoặc full transcript khi có track.' : 'Không phải trang video YouTube.');
       return;
     }
 
-    setStatus(`Đang đọc danh sách phụ đề từ trang ${platformLabel(state.currentPlatform)}...`);
+    setStatus('Đang đọc danh sách phụ đề từ trang YouTube...');
 
     const result = await executeInPage(pageGetMetadata, [{
       preferOriginalTrack: Boolean(state.settings.preferOriginalTrack),
@@ -1296,9 +1209,8 @@ async function loadTracks(options = {}) {
 
     if (!result?.ok) {
       state.videoTitle = 'Không đọc được phụ đề';
-      state.channelName = result?.error || `${platformLabel(state.currentPlatform)} không trả về metadata phụ đề.`;
-      state.videoId = state.currentPlatform === PLATFORM_NETFLIX ? extractNetflixVideoIdFromUrl(tab.url) : extractVideoIdFromUrl(tab.url);
-      state.thumbnailUrl = '';
+      state.channelName = result?.error || 'YouTube không trả về metadata phụ đề.';
+      state.videoId = extractVideoIdFromUrl(tab.url);
       state.sourceTracks = [];
       state.translationLanguages = [];
       state.selectedSourceIndex = -1;
@@ -1311,12 +1223,9 @@ async function loadTracks(options = {}) {
       return;
     }
 
-    state.currentPlatform = result.platform || state.currentPlatform;
-    state.videoTitle = result.videoTitle || sanitizeFilename(tab.title || 'video');
-    state.channelName = result.channelName || platformLabel(state.currentPlatform);
-    state.videoId = result.videoId || (state.currentPlatform === PLATFORM_NETFLIX ? extractNetflixVideoIdFromUrl(tab.url) : extractVideoIdFromUrl(tab.url));
-    state.thumbnailUrl = result.thumbnailUrl || '';
-    state.supportsTranslation = result.supportsTranslation !== false;
+    state.videoTitle = result.videoTitle || sanitizeFilename(tab.title || 'youtube-video');
+    state.channelName = result.channelName || 'YouTube';
+    state.videoId = result.videoId || extractVideoIdFromUrl(tab.url);
     state.sourceTracks = Array.isArray(result.sourceTracks) ? result.sourceTracks : [];
     state.translationLanguages = Array.isArray(result.translationLanguages) ? result.translationLanguages : [];
     state.originalTrackIndex = Number.isInteger(result.originalTrackIndex) ? result.originalTrackIndex : -1;
@@ -1329,8 +1238,8 @@ async function loadTracks(options = {}) {
       rebuildTargetLanguageOptions();
       hydrateVideoCard();
       setSubtitleBadge('No subtitles found', 'is-missing');
-      setStatus(state.currentPlatform === PLATFORM_NETFLIX ? 'Netflix chưa expose track subtitle nào. Hãy bật subtitle trong player rồi refresh.' : 'Video này hiện không có phụ đề để trích xuất.');
-      renderEmptyPreview(state.currentPlatform === PLATFORM_NETFLIX ? 'Netflix chưa expose subtitle track nào. Hãy bật subtitle trong player Netflix rồi refresh.' : 'Không tìm thấy subtitle khả dụng.');
+      setStatus('Video này hiện không có phụ đề để trích xuất.');
+      renderEmptyPreview('Không tìm thấy subtitle khả dụng.');
       return;
     }
 
@@ -1357,7 +1266,7 @@ async function loadTracks(options = {}) {
     updateSubtitleBadge();
 
     setStatus(
-      `Tìm thấy ${state.sourceTracks.length} track trên ${platformLabel(state.currentPlatform)}. ${
+      `Tìm thấy ${state.sourceTracks.length} phụ đề gốc. ${
         state.settings.autoFetchOnSelectionChange ? 'Đổi lựa chọn sẽ tự tải lại.' : 'Bấm Get subtitles để tải nội dung.'
       }`
     );
@@ -1388,8 +1297,6 @@ async function loadSelectedTrack() {
 
   setActionsEnabled(false);
   setLoading(true);
-  stopPlaybackWatcher();
-  stopLiveCaptureWatcher();
   closeExportMenu();
   resetSearchUi();
   renderEmptyPreview('Đang tải subtitle...');
@@ -1399,17 +1306,6 @@ async function loadSelectedTrack() {
   try {
     const sourceResult = await fetchTrackWithCache(sourceRequest);
     setDebug(sourceResult?.debug || []);
-
-    if (
-      state.currentPlatform === PLATFORM_NETFLIX &&
-      (sourceRequest.fetchStrategy === 'liveCapture' || sourceResult?.liveCaptureOnly)
-    ) {
-      state.transcript = null;
-      state.rawSourceCues = [];
-      state.rawTranslatedCues = [];
-      await startNetflixLiveCaptureWatcher(sourceResult?.error || 'Đang live capture subtitle Netflix đang hiển thị.');
-      return;
-    }
 
     if (!sourceResult?.ok || !Array.isArray(sourceResult.cues) || !sourceResult.cues.length) {
       state.transcript = null;
@@ -1425,7 +1321,6 @@ async function loadSelectedTrack() {
     state.rawTranslatedCues = null;
 
     const needsTranslated =
-      state.supportsTranslation &&
       state.selectedTargetLanguage !== ORIGINAL_LANGUAGE_SENTINEL &&
       (state.settings.outputMode === 'translated' || state.settings.outputMode === 'bilingual');
 
@@ -1623,7 +1518,7 @@ function renderFromRawCues() {
     : null;
 
   const outputMode = state.settings.outputMode;
-  const translationSelected = state.supportsTranslation && state.selectedTargetLanguage !== ORIGINAL_LANGUAGE_SENTINEL;
+  const translationSelected = state.selectedTargetLanguage !== ORIGINAL_LANGUAGE_SENTINEL;
   let finalCues = [];
   let modeLabel = 'phụ đề gốc';
 
@@ -1674,12 +1569,6 @@ function renderFromRawCues() {
 
   setActionsEnabled(true);
   renderTranscriptPreview();
-  if (state.liveCaptureActive) {
-    stopPlaybackWatcher();
-    syncActiveCueFromPlayback({ scroll: state.playbackIsPlaying });
-  } else {
-    startPlaybackWatcher();
-  }
   pushHistoryItem().catch(() => {});
 
   if (!(outputMode === 'bilingual' && translationSelected && (!translatedCleaned || !translatedCleaned.length))) {
@@ -1740,7 +1629,6 @@ function renderTranscriptPreview() {
     transcriptPreviewEl.innerHTML = html;
     setPreviewMeta(`Timed • ${cues.length} cues`);
     applySearch();
-    applyLiveCueHighlight();
     return;
   }
 
@@ -1783,7 +1671,6 @@ function renderTranscriptPreview() {
   transcriptPreviewEl.innerHTML = html;
   setPreviewMeta(`Text • ${cues.length} cues`);
   applySearch();
-  applyLiveCueHighlight();
 }
 
 function highlightHtmlText(text, query) {
@@ -2094,358 +1981,11 @@ async function exportSelectedRange(type) {
   }
 }
 
-
-function normalizeLiveCaptureText(text) {
-  return String(text || '')
-    .replace(/\u200b/g, '')
-    .replace(/\r/g, '')
-    .replace(/\s+\n/g, '\n')
-    .replace(/\n\s+/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
-}
-
-function finalizeLastLiveCaptureCue(endMs) {
-  const last = state.liveCaptureBuffer[state.liveCaptureBuffer.length - 1];
-  if (!last) return;
-  const fallbackEnd = last.endMs || (last.startMs + 1200);
-  last.endMs = Math.max(Number(endMs) || 0, fallbackEnd, last.startMs + 120);
-}
-
-function commitLiveCaptureBuffer() {
-  state.rawSourceCues = state.liveCaptureBuffer.map((cue) => ({ ...cue }));
-  state.rawTranslatedCues = [];
-  renderFromRawCues();
-}
-
-function stopLiveCaptureWatcher() {
-  if (state.liveCaptureTimer) {
-    clearInterval(state.liveCaptureTimer);
-    state.liveCaptureTimer = null;
-  }
-  state.liveCaptureActive = false;
-  state.liveCaptureLastText = '';
-}
-
-async function startNetflixLiveCaptureWatcher(reason = '') {
-  stopLiveCaptureWatcher();
-  stopPlaybackWatcher();
-  state.liveCaptureActive = true;
-  state.liveCaptureBuffer = Array.isArray(state.rawSourceCues) ? state.rawSourceCues.map((cue) => ({ ...cue })) : [];
-  state.liveCaptureLastText = state.liveCaptureBuffer[state.liveCaptureBuffer.length - 1]?.text || '';
-  setSubtitleBadge('Live capture', 'is-available');
-  setPreviewMeta('Live capture');
-  if (!state.liveCaptureBuffer.length) {
-    renderEmptyPreview('Đang live capture subtitle Netflix đang hiển thị.');
-  }
-  setStatus(reason || 'Đang live capture subtitle Netflix đang hiển thị.');
-  state.liveCaptureTimer = window.setInterval(async () => {
-    try {
-      const snapshot = await executeInPage(pageGetNetflixLiveSnapshot, []);
-      if (!snapshot?.ok) return;
-      state.lastPlaybackSnapshotAtMs = Date.now();
-      state.playbackBaseMs = Math.max(0, Number(snapshot.currentTimeMs) || 0);
-      state.playbackSyncPerfMs = performance.now();
-      state.playbackRate = Math.max(0.1, Number(snapshot.playbackRate) || 1);
-      state.playbackIsPlaying = Boolean(snapshot.isPlaying);
-      state.playbackTimeMs = state.playbackBaseMs;
-      const text = normalizeLiveCaptureText(snapshot.text);
-      const timeMs = Math.max(0, Number(snapshot.currentTimeMs) || 0);
-      const last = state.liveCaptureBuffer[state.liveCaptureBuffer.length - 1];
-
-      if (!text) {
-        if (state.liveCaptureLastText) {
-          finalizeLastLiveCaptureCue(timeMs);
-          state.liveCaptureLastText = '';
-          commitLiveCaptureBuffer();
-        }
-        syncActiveCueFromPlayback({ scroll: state.playbackIsPlaying });
-        return;
-      }
-
-      if (!last || state.liveCaptureLastText !== text) {
-        finalizeLastLiveCaptureCue(timeMs);
-        state.liveCaptureBuffer.push({ startMs: timeMs, endMs: timeMs + 900, text });
-        state.liveCaptureLastText = text;
-        commitLiveCaptureBuffer();
-        setStatus('Đang live capture subtitle Netflix đang hiển thị.');
-        return;
-      }
-
-      last.endMs = Math.max(last.endMs || 0, timeMs + 120);
-      syncActiveCueFromPlayback({ scroll: state.playbackIsPlaying });
-    } catch {
-      // ignore live capture watcher errors
-    }
-  }, 150);
-}
-
-function pageGetPlaybackSnapshot() {
-  try {
-    const host = location.hostname || '';
-    const platform = /(^|\.)netflix\.com$/.test(host) ? 'netflix' : 'youtube';
-    const video = document.querySelector('video');
-    if (video) {
-      return {
-        ok: true,
-        platform,
-        currentTimeMs: Math.round((Number(video.currentTime) || 0) * 1000),
-        isPlaying: !video.paused && !video.ended && video.readyState >= 2,
-        playbackRate: Number(video.playbackRate) || 1,
-        url: location.href,
-      };
-    }
-    const player = document.getElementById('movie_player');
-    if (player?.getCurrentTime) {
-      return {
-        ok: true,
-        platform: 'youtube',
-        currentTimeMs: Math.round((Number(player.getCurrentTime()) || 0) * 1000),
-        isPlaying: Number(player.getPlayerState?.() ?? -1) === 1,
-        playbackRate: Number(player.getPlaybackRate?.() ?? 1) || 1,
-        url: location.href,
-      };
-    }
-    return { ok: false, error: 'Không tìm thấy player đang phát.' };
-  } catch (error) {
-    return { ok: false, error: error?.message || 'Không đọc được trạng thái playback.' };
-  }
-}
-
-function pageSeekToTime(startMs) {
-  try {
-    const seconds = Math.max(0, Number(startMs) || 0) / 1000;
-    const video = document.querySelector('video');
-    if (video) {
-      video.currentTime = seconds;
-      return { ok: true, currentTimeMs: Math.round(seconds * 1000) };
-    }
-    const player = document.getElementById('movie_player');
-    if (player?.seekTo) {
-      player.seekTo(seconds, true);
-      return { ok: true, currentTimeMs: Math.round(seconds * 1000) };
-    }
-    return { ok: false, error: 'Player hiện tại không hỗ trợ seek.' };
-  } catch (error) {
-    return { ok: false, error: error?.message || 'Không tua được video.' };
-  }
-}
-
-
-function pageGetNetflixLiveSnapshot() {
-  try {
-    const normalizeText = (value) => String(value || '')
-      .replace(/\u200b/g, '')
-      .replace(/\r/g, '')
-      .replace(/\s+\n/g, '\n')
-      .replace(/\n\s+/g, '\n')
-      .replace(/\n{3,}/g, '\n\n')
-      .replace(/[ \t]{2,}/g, ' ')
-      .trim();
-
-    const video = document.querySelector('video');
-    if (!video) return { ok: false, error: 'Không tìm thấy video Netflix.' };
-
-    const selectors = [
-      '[data-uia=\"player-subtitle\"]',
-      '[data-uia=\"subtitle-text\"]',
-      '.player-timedtext',
-      '.player-timedtext-text-container',
-      '.player-timedtext-text',
-      '[class*=\"timedtext\"] [class*=\"text\"]',
-      '.watch-video--player-view [class*=\"timedtext\"]',
-      '.watch-video--player-view [data-uia*=\"subtitle\"]',
-    ];
-
-    let text = '';
-    for (const selector of selectors) {
-      const nodes = Array.from(document.querySelectorAll(selector));
-      const parts = nodes
-        .map((node) => normalizeText(node.innerText || node.textContent || ''))
-        .filter(Boolean);
-      if (parts.length) {
-        text = parts.join('\n');
-        break;
-      }
-    }
-
-    return {
-      ok: true,
-      currentTimeMs: Math.round(Number(video.currentTime || 0) * 1000),
-      playbackRate: Number(video.playbackRate || 1) || 1,
-      isPlaying: !video.paused && !video.ended && Number(video.readyState || 0) >= 2,
-      text,
-    };
-  } catch (error) {
-    return { ok: false, error: error?.message || 'Không đọc được live subtitle Netflix.' };
-  }
-}
-
 function pageGetMetadata(options = {}) {
   const debug = [];
 
   function push(message) {
     debug.push(String(message));
-  }
-
-  const host = location.hostname || '';
-  if (/(^|\.)netflix\.com$/.test(host)) {
-    const video = document.querySelector('video');
-    const title =
-      document.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
-      document.querySelector('meta[name="twitter:title"]')?.getAttribute('content') ||
-      document.title.replace(/\s*-\s*Netflix.*$/i, '').trim();
-    const thumbnailUrl =
-      document.querySelector('meta[property="og:image"]')?.getAttribute('content') ||
-      document.querySelector('meta[name="twitter:image"]')?.getAttribute('content') ||
-      '';
-    const videoIdMatch = location.pathname.match(/\/watch\/(\d+)/);
-    const videoId = videoIdMatch?.[1] || '';
-
-    if (!video) {
-      return { ok: false, platform: 'netflix', error: 'Không tìm thấy player Netflix đang phát.', debug };
-    }
-
-    const normalizeLang = (value) => String(value || '').trim().toLowerCase().replace(/_/g, '-');
-    const isSubtitleKind = (kind) => {
-      const value = String(kind || '').toLowerCase();
-      return !value || value === 'subtitles' || value === 'captions';
-    };
-
-    const textTracks = Array.from(video.textTracks || []);
-    const domTracks = Array.from(document.querySelectorAll('video track, track'));
-    push(`netflix textTracks=${textTracks.length}`);
-    push(`netflix <track> elements=${domTracks.length}`);
-
-    const sourceTracks = [];
-    const guessLangFromUrl = (value, fallback = '') => {
-      const str = String(value || '');
-      try {
-        const parsed = new URL(str, location.href);
-        const fromQuery = parsed.searchParams.get('lang') || parsed.searchParams.get('language') || parsed.searchParams.get('locale');
-        if (fromQuery) return normalizeLang(fromQuery);
-      } catch {}
-      const match = str.match(/(?:^|[\/_-])([a-z]{2}(?:-[a-z]{2})?)(?:[\/_.-]|$)/i);
-      return normalizeLang(match?.[1] || fallback || '');
-    };
-    const collectSubtitleUrls = () => {
-      const seen = new Set();
-      const results = [];
-      const add = (value, reason) => {
-        const str = String(value || '');
-        if (!/^https?:/i.test(str)) return;
-        if (!/(vtt|ttml|dfxp|xml|subtitle|captions|timedtext)/i.test(str)) return;
-        if (seen.has(str)) return;
-        seen.add(str);
-        results.push({ url: str, reason });
-      };
-      try {
-        for (const entry of performance.getEntriesByType('resource') || []) add(entry?.name, 'performance');
-      } catch {}
-      try {
-        for (const trackNode of domTracks) add(trackNode?.src || trackNode?.getAttribute?.('src'), 'dom-track');
-      } catch {}
-      return results;
-    };
-    const pushTrack = (trackLike, index, source) => {
-      const kind = String(trackLike?.kind || 'subtitles').toLowerCase();
-      if (!isSubtitleKind(kind)) return;
-      const label = String(trackLike?.label || trackLike?.srclang || trackLike?.language || `Track ${index + 1}`).trim();
-      const languageCode = normalizeLang(trackLike?.language || trackLike?.srclang || trackLike?.languageCode || label);
-      const baseUrl = String(trackLike?.src || trackLike?.baseUrl || trackLike?.url || '');
-      if (sourceTracks.some((item) => item.languageCode === languageCode && item.name === label)) return;
-      const mode = String(trackLike?.mode || 'disabled');
-      sourceTracks.push({
-        index: sourceTracks.length,
-        platform: 'netflix',
-        textTrackIndex: source === 'textTrack' ? index : -1,
-        domTrackIndex: source === 'domTrack' ? index : -1,
-        label: `${label}${languageCode ? ` [${languageCode}]` : ''}${mode === 'showing' ? ' • active' : ''}`,
-        languageCode: languageCode || `track-${index + 1}`,
-        baseUrl,
-        kind: kind || 'subtitles',
-        name: label,
-        vssId: '',
-        isAuto: false,
-        isTranslatable: false,
-        isTranslation: false,
-        sourceLanguageCode: languageCode || '',
-        sourceName: label,
-        mode,
-      });
-    };
-
-    textTracks.forEach((track, index) => pushTrack(track, index, 'textTrack'));
-    if (!sourceTracks.length) domTracks.forEach((track, index) => pushTrack(track, index, 'domTrack'));
-    if (!sourceTracks.length) {
-      const subtitleUrls = collectSubtitleUrls();
-      push(`netflix subtitle url fallbacks=${subtitleUrls.length}`);
-      subtitleUrls.forEach((entry, index) => {
-        const languageCode = guessLangFromUrl(entry.url, `track-${index + 1}`);
-        sourceTracks.push({
-          index: sourceTracks.length,
-          platform: 'netflix',
-          textTrackIndex: -1,
-          domTrackIndex: -1,
-          label: `Fallback ${languageCode || index + 1}${entry.reason ? ` • ${entry.reason}` : ''}`,
-          languageCode: languageCode || `track-${index + 1}`,
-          baseUrl: entry.url,
-          kind: 'subtitles',
-          name: languageCode || `Fallback ${index + 1}`,
-          vssId: '',
-          isAuto: false,
-          isTranslatable: false,
-          isTranslation: false,
-          sourceLanguageCode: languageCode || '',
-          sourceName: languageCode || `Fallback ${index + 1}`,
-          mode: 'disabled',
-        });
-      });
-    }
-
-    const activeIndex = sourceTracks.findIndex((track) => track.mode === 'showing' || track.mode === 'hidden' || /active/.test(track.label));
-    const liveLanguage = sourceTracks[activeIndex >= 0 ? activeIndex : 0]?.languageCode || 'live';
-    sourceTracks.push({
-      index: sourceTracks.length,
-      platform: 'netflix',
-      fetchStrategy: 'liveCapture',
-      textTrackIndex: -1,
-      domTrackIndex: -1,
-      label: sourceTracks.length ? `Live capture [${liveLanguage}]` : 'Live capture',
-      languageCode: liveLanguage,
-      baseUrl: '',
-      kind: 'subtitles',
-      name: 'Live capture',
-      vssId: '',
-      isAuto: false,
-      isTranslatable: false,
-      isTranslation: false,
-      sourceLanguageCode: liveLanguage,
-      sourceName: 'Live capture',
-      mode: activeIndex >= 0 ? 'hidden' : 'disabled',
-    });
-
-    const defaultSourceIndex = activeIndex >= 0 ? activeIndex : (sourceTracks.length ? sourceTracks.length - 1 : -1);
-    const originalLanguageCode = sourceTracks[Math.max(0, activeIndex)]?.languageCode || '';
-
-    return {
-      ok: true,
-      platform: 'netflix',
-      videoTitle: title || 'Netflix',
-      channelName: 'Netflix',
-      videoId,
-      thumbnailUrl,
-      sourceTracks,
-      translationLanguages: [],
-      defaultSourceIndex,
-      originalTrackIndex: defaultSourceIndex,
-      originalLanguageCode,
-      audioLanguageCode: '',
-      defaultTrackReason: defaultSourceIndex >= 0 ? (activeIndex >= 0 ? 'track subtitle đang bật / đầu tiên' : 'live capture fallback') : '',
-      supportsTranslation: false,
-      debug,
-    };
   }
 
   function safeJsonParse(text) {
@@ -2756,11 +2296,9 @@ function pageGetMetadata(options = {}) {
 
   return {
     ok: true,
-    platform: 'youtube',
     videoTitle: playerResponse?.videoDetails?.title || document.title.replace(/ - YouTube$/, ''),
     channelName: playerResponse?.videoDetails?.author || '',
     videoId: playerResponse?.videoDetails?.videoId || '',
-    thumbnailUrl: '',
     sourceTracks,
     translationLanguages: translationLangs,
     defaultSourceIndex: defaultSourceInfo.index,
@@ -2768,7 +2306,6 @@ function pageGetMetadata(options = {}) {
     originalLanguageCode: originalTrackInfo.languageCode,
     audioLanguageCode: audioInfo.languageCode,
     defaultTrackReason: defaultSourceInfo.reason,
-    supportsTranslation: true,
     debug,
   };
 }
@@ -3118,159 +2655,6 @@ async function pageFetchTrack(track) {
     return null;
   }
 
-  async function fetchNetflixTrack(item) {
-    if (item?.fetchStrategy === 'liveCapture') {
-      return { ok: false, liveCaptureOnly: true, error: 'Đã chọn chế độ live capture Netflix.', debug };
-    }
-
-    const video = document.querySelector('video');
-    if (!video) {
-      return { ok: false, error: 'Không tìm thấy player Netflix.', debug };
-    }
-
-    const normalizeLang = (value) => String(value || '').trim().toLowerCase().replace(/_/g, '-');
-    const isSubtitleKind = (kind) => {
-      const value = String(kind || '').toLowerCase();
-      return !value || value === 'subtitles' || value === 'captions';
-    };
-
-    const textTracks = Array.from(video.textTracks || []).filter((candidate) => isSubtitleKind(candidate?.kind));
-    push(`netflix textTracks=${textTracks.length}`);
-
-    let selectedTrack = null;
-    if (Number.isInteger(Number(item?.textTrackIndex)) && Number(item.textTrackIndex) >= 0) {
-      selectedTrack = textTracks[Number(item.textTrackIndex)] || null;
-    }
-    if (!selectedTrack && item?.languageCode) {
-      selectedTrack = textTracks.find((candidate) => normalizeLang(candidate.language || candidate.srclang || '') === normalizeLang(item.languageCode));
-    }
-    if (!selectedTrack && item?.name) {
-      selectedTrack = textTracks.find((candidate) => String(candidate.label || '').trim() === String(item.name || '').trim());
-    }
-    if (!selectedTrack) selectedTrack = textTracks[0] || null;
-
-    const restoreModes = textTracks.map((candidate) => String(candidate.mode || 'disabled'));
-
-    async function waitForTrackPopulation(trackToWait, timeoutMs = 4000) {
-      const startedAt = Date.now();
-      while (Date.now() - startedAt < timeoutMs) {
-        if (Number(trackToWait?.cues?.length || 0) > 0) return;
-        await new Promise((resolve) => setTimeout(resolve, 120));
-      }
-    }
-
-    function serializeCueList(cueList) {
-      const normalized = [];
-      const seen = new Set();
-      for (const cue of Array.from(cueList || [])) {
-        const text = normalizeCueText(cue?.text || cue?.id || '');
-        const startMs = Math.max(0, Math.round((Number(cue?.startTime) || 0) * 1000));
-        const endMs = Math.max(startMs, Math.round((Number(cue?.endTime) || 0) * 1000));
-        if (!text) continue;
-        const key = `${startMs}|${endMs}|${text}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        normalized.push({ startMs, endMs, text });
-      }
-      return normalized;
-    }
-
-    async function tryFetchTrackElementSrc() {
-      const domTracks = Array.from(document.querySelectorAll('video track, track')).filter((candidate) => isSubtitleKind(candidate?.kind));
-      push(`netflix <track> elements=${domTracks.length}`);
-      let domTrack = null;
-      if (Number.isInteger(Number(item?.domTrackIndex)) && Number(item.domTrackIndex) >= 0) {
-        domTrack = domTracks[Number(item.domTrackIndex)] || null;
-      }
-      if (!domTrack && item?.languageCode) {
-        domTrack = domTracks.find((candidate) => normalizeLang(candidate.srclang || candidate.getAttribute?.('srclang') || '') === normalizeLang(item.languageCode));
-      }
-      if (!domTrack && item?.name) {
-        domTrack = domTracks.find((candidate) => String(candidate.label || candidate.getAttribute?.('label') || '').trim() === String(item.name || '').trim());
-      }
-      if (!domTrack) domTrack = domTracks[0] || null;
-      const src = item?.baseUrl || domTrack?.src || domTrack?.getAttribute?.('src') || '';
-      if (!src) return null;
-      try {
-        const response = await fetch(src, { credentials: 'include', cache: 'no-store' });
-        const contentType = response.headers.get('content-type') || 'text/vtt';
-        const raw = await response.text();
-        const parsed = parseContent(raw, contentType);
-        push(`fetch dom/base src: status=${response.status}, format=${parsed.format}, cues=${parsed.cues.length}`);
-        if (response.ok && parsed.cues.length) {
-          return {
-            ok: true,
-            cues: parsed.cues,
-            sourceUrl: src,
-            sourceFormat: parsed.format,
-            source: item?.baseUrl ? 'netflix-base-url' : 'netflix-track-src',
-            debug,
-          };
-        }
-      } catch (error) {
-        push(`fetch dom/base src lỗi: ${error.message}`);
-      }
-      return null;
-    }
-
-    if (!selectedTrack) {
-      const fromTrackElement = await tryFetchTrackElementSrc();
-      if (fromTrackElement) return fromTrackElement;
-      return {
-        ok: false,
-        liveCaptureOnly: true,
-        error: item?.baseUrl ? 'Netflix có URL phụ đề fallback nhưng chưa đọc được nội dung từ URL đó.' : 'Netflix chưa expose subtitle track nào. Hãy bật subtitle trong player Netflix rồi refresh.',
-        debug,
-      };
-    }
-
-    try {
-      for (let i = 0; i < textTracks.length; i += 1) {
-        try {
-          textTracks[i].mode = textTracks[i] === selectedTrack ? 'hidden' : 'disabled';
-        } catch (error) {
-          push(`đổi mode textTrack[${i}] lỗi: ${error.message}`);
-        }
-      }
-      await waitForTrackPopulation(selectedTrack);
-      let cues = serializeCueList(selectedTrack.cues);
-      push(`netflix cues=${cues.length}`);
-      if (!cues.length) {
-        cues = serializeCueList(selectedTrack.activeCues);
-        if (cues.length) push(`fallback activeCues=${cues.length}`);
-      }
-      if (!cues.length) {
-        const fromTrackElement = await tryFetchTrackElementSrc();
-        if (fromTrackElement) return fromTrackElement;
-      }
-      if (cues.length) {
-        return {
-          ok: true,
-          cues,
-          sourceFormat: 'texttrack-cues',
-          source: 'texttracks',
-          debug,
-        };
-      }
-      return {
-        ok: false,
-        liveCaptureOnly: true,
-        error: 'Netflix chưa cho extension đọc danh sách cues của track này. Hãy bật đúng subtitle, phát video vài giây rồi refresh.',
-        debug,
-      };
-    } finally {
-      textTracks.forEach((candidate, index) => {
-        try {
-          candidate.mode = restoreModes[index] || 'disabled';
-        } catch {}
-      });
-    }
-  }
-
-  if (track?.platform === 'netflix' || /(^|\.)netflix\.com$/.test(location.hostname || '')) {
-    return fetchNetflixTrack(track);
-  }
-
   if (!track?.baseUrl) {
     return { ok: false, error: 'Track không có baseUrl.', debug };
   }
@@ -3329,645 +2713,3 @@ async function pageFetchTrack(track) {
     debug,
   };
 }
-
-/* ===== Enhancement v4.6.1: merge-safe diagnostics + sync profiles ===== */
-const syncProfileSelectElV461 = document.getElementById('syncProfileSelect');
-const youtubeLeadInputElV461 = document.getElementById('youtubeLeadInput');
-const liveSyncProfileChipElV461 = document.getElementById('liveSyncProfileChip');
-const liveSyncHintElV461 = document.getElementById('liveSyncHint');
-const refreshDiagnosticsBtnV461 = document.getElementById('refreshDiagnosticsBtn');
-const copyDiagnosticsBtnV461 = document.getElementById('copyDiagnosticsBtn');
-const exportDiagnosticsBtnV461 = document.getElementById('exportDiagnosticsBtn');
-const exportSessionLogBtnV461 = document.getElementById('exportSessionLogBtn');
-const diagnosticMetaElV461 = document.getElementById('diagnosticMeta');
-const diagnosticPreviewElV461 = document.getElementById('diagnosticPreview');
-const V461_SESSION_LOG_LIMIT = 250;
-
-state.sessionLogV461 = Array.isArray(state.sessionLogV461) ? state.sessionLogV461 : [];
-state.diagnosticsRefreshedAtV461 = state.diagnosticsRefreshedAtV461 || '';
-state.settings.syncProfile = state.settings.syncProfile || 'smooth';
-state.settings.youtubeLeadMs = Number.isFinite(Number(state.settings.youtubeLeadMs)) ? Math.max(0, Math.min(1200, Number(state.settings.youtubeLeadMs))) : 320;
-
-const __v461BaseSetStatus = setStatus;
-const __v461BaseSetDebug = setDebug;
-const __v461BaseRenderFromRawCues = renderFromRawCues;
-const __v461BaseRenderEmptyPreview = renderEmptyPreview;
-const __v461BaseLoadTracks = loadTracks;
-const __v461BaseLoadSelectedTrack = loadSelectedTrack;
-const __v461BaseHydrateVideoCard = hydrateVideoCard;
-const __v461BaseApplySettingsToUi = applySettingsToUi;
-const __v461BaseLoadSettings = loadSettings;
-const __v461BaseGetEstimatedPlaybackTimeMs = getEstimatedPlaybackTimeMs;
-const __v461ObserverState = {
-  lastCueSignature: '',
-  lastTrackSignature: '',
-  lastPlatformUrlSignature: '',
-};
-let __v461ObserverTimer = null;
-
-loadSettings = async function (...args) {
-  await __v461BaseLoadSettings(...args);
-  state.settings.syncProfile = ['accurate', 'smooth', 'aggressive'].includes(state.settings.syncProfile) ? state.settings.syncProfile : 'smooth';
-  state.settings.youtubeLeadMs = Number.isFinite(Number(state.settings.youtubeLeadMs)) ? Math.max(0, Math.min(1200, Number(state.settings.youtubeLeadMs))) : 320;
-};
-
-applySettingsToUi = function (...args) {
-  __v461BaseApplySettingsToUi(...args);
-  if (syncProfileSelectElV461) syncProfileSelectElV461.value = state.settings.syncProfile || 'smooth';
-  if (youtubeLeadInputElV461) youtubeLeadInputElV461.value = String(Number(state.settings.youtubeLeadMs) || 320);
-  renderSyncMetaV461();
-};
-
-setStatus = function (message) {
-  __v461BaseSetStatus(message);
-  addSessionLogEntryV461('status', message);
-  renderDiagnosticsPanelV461();
-};
-
-setDebug = function (lines) {
-  __v461BaseSetDebug(lines);
-  renderDiagnosticsPanelV461();
-};
-
-renderEmptyPreview = function (message) {
-  __v461BaseRenderEmptyPreview(message);
-  addSessionLogEntryV461('preview', message);
-  renderSyncMetaV461();
-  renderDiagnosticsPanelV461();
-};
-
-renderFromRawCues = function (...args) {
-  const result = __v461BaseRenderFromRawCues(...args);
-  addTranscriptSnapshotLogV461();
-  renderSyncMetaV461();
-  renderDiagnosticsPanelV461();
-  return result;
-};
-
-hydrateVideoCard = function (...args) {
-  const result = __v461BaseHydrateVideoCard(...args);
-  observeDiagnosticsStateV461({ force: true });
-  renderSyncMetaV461();
-  return result;
-};
-
-loadTracks = async function (...args) {
-  addSessionLogEntryV461('fetch', 'Bắt đầu đọc metadata và danh sách track subtitle.');
-  try {
-    return await __v461BaseLoadTracks(...args);
-  } finally {
-    observeDiagnosticsStateV461({ force: true });
-    renderSyncMetaV461();
-    renderDiagnosticsPanelV461();
-  }
-};
-
-loadSelectedTrack = async function (...args) {
-  addSessionLogEntryV461('fetch', 'Bắt đầu tải subtitle theo lựa chọn hiện tại.');
-  try {
-    return await __v461BaseLoadSelectedTrack(...args);
-  } finally {
-    observeDiagnosticsStateV461({ force: true });
-    renderSyncMetaV461();
-    renderDiagnosticsPanelV461();
-  }
-};
-
-getEstimatedPlaybackTimeMs = function (...args) {
-  let value = __v461BaseGetEstimatedPlaybackTimeMs(...args);
-  if (state.currentPlatform === PLATFORM_YOUTUBE) {
-    value += Number(state.settings.youtubeLeadMs) || 0;
-  }
-  return Math.max(0, Math.round(value));
-};
-
-resolveCueIndexByTime = function (timeMs) {
-  const cues = state.transcript?.cues;
-  if (!Array.isArray(cues) || !cues.length) return -1;
-  const config = getSyncProfileConfigV461();
-  const adjustedTimeMs = Math.max(0, Math.round(Number(timeMs) || 0) + (Number(state.settings.syncOffsetMs) || 0));
-  const activeIndex = Number(state.activeCueIndex);
-  const withinCue = (cue) => adjustedTimeMs >= cue.startMs - config.preRollMs && adjustedTimeMs <= cue.endMs + config.postRollMs;
-
-  if (Number.isInteger(activeIndex) && activeIndex >= 0 && activeIndex < cues.length) {
-    const current = cues[activeIndex];
-    if (current && withinCue(current)) return activeIndex;
-    const nextCue = cues[activeIndex + 1];
-    if (nextCue && withinCue(nextCue)) return activeIndex + 1;
-    const prevCue = cues[activeIndex - 1];
-    if (prevCue && withinCue(prevCue)) return activeIndex - 1;
-  }
-
-  let lo = 0;
-  let hi = cues.length - 1;
-  let candidate = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (cues[mid].startMs <= adjustedTimeMs + config.preRollMs) {
-      candidate = mid;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  if (candidate >= 0 && withinCue(cues[candidate])) return candidate;
-  if (candidate + 1 < cues.length && withinCue(cues[candidate + 1])) return candidate + 1;
-  return -1;
-};
-
-const __v461BaseUpdatePlaybackIndicator = updatePlaybackIndicator;
-updatePlaybackIndicator = function (snapshot) {
-  __v461BaseUpdatePlaybackIndicator(snapshot);
-  renderSyncMetaV461();
-};
-
-syncProfileSelectElV461?.addEventListener('change', async (event) => {
-  const value = ['accurate', 'smooth', 'aggressive'].includes(event.target.value) ? event.target.value : 'smooth';
-  state.settings.syncProfile = value;
-  await saveSettings();
-  syncActiveCueFromPlayback({ scroll: false });
-  renderSyncMetaV461();
-  setStatus(`Đã chuyển sync profile sang ${value}.`);
-});
-
-youtubeLeadInputElV461?.addEventListener('change', async (event) => {
-  const raw = Number(event.target.value);
-  const value = Number.isFinite(raw) ? Math.max(0, Math.min(1200, Math.round(raw))) : 320;
-  event.target.value = String(value);
-  state.settings.youtubeLeadMs = value;
-  await saveSettings();
-  syncActiveCueFromPlayback({ scroll: false });
-  renderSyncMetaV461();
-  setStatus(`Đã cập nhật YouTube lead: ${value} ms.`);
-});
-
-refreshDiagnosticsBtnV461?.addEventListener('click', () => {
-  observeDiagnosticsStateV461({ force: true });
-  renderDiagnosticsPanelV461({ forceRefreshStamp: true });
-  __v461BaseSetStatus('Đã làm mới diagnostics report.');
-});
-
-copyDiagnosticsBtnV461?.addEventListener('click', async () => {
-  try {
-    const text = buildDiagnosticsTextV461({ includeDebug: true, includeSession: true });
-    await navigator.clipboard.writeText(text);
-    __v461BaseSetStatus('Đã copy diagnostics bundle.');
-    addSessionLogEntryV461('diagnostic', 'Đã copy diagnostics bundle vào clipboard.');
-    renderDiagnosticsPanelV461({ forceRefreshStamp: true });
-  } catch (error) {
-    __v461BaseSetStatus(error?.message || 'Không thể copy diagnostics bundle.');
-  }
-});
-
-exportDiagnosticsBtnV461?.addEventListener('click', async () => {
-  try {
-    const payload = JSON.stringify(buildDiagnosticsObjectV461(), null, 2);
-    await downloadDiagnosticsFileV461(`${buildDiagnosticsFileBaseV461()} - diagnostics.json`, payload, 'application/json;charset=utf-8');
-    __v461BaseSetStatus('Đã export diagnostics JSON.');
-    addSessionLogEntryV461('diagnostic', 'Đã export diagnostics JSON.');
-    renderDiagnosticsPanelV461({ forceRefreshStamp: true });
-  } catch (error) {
-    __v461BaseSetStatus(error?.message || 'Không thể export diagnostics JSON.');
-  }
-});
-
-exportSessionLogBtnV461?.addEventListener('click', async () => {
-  try {
-    const entries = state.sessionLogV461 || [];
-    if (!entries.length) {
-      __v461BaseSetStatus('Chưa có session log để export.');
-      return;
-    }
-    const text = buildSessionLogTextV461(entries);
-    await downloadDiagnosticsFileV461(`${buildDiagnosticsFileBaseV461()} - session-log.txt`, text, 'text/plain;charset=utf-8');
-    __v461BaseSetStatus('Đã export session log TXT.');
-    addSessionLogEntryV461('diagnostic', 'Đã export session log TXT.');
-    renderDiagnosticsPanelV461({ forceRefreshStamp: true });
-  } catch (error) {
-    __v461BaseSetStatus(error?.message || 'Không thể export session log.');
-  }
-});
-
-function getSyncProfileConfigV461() {
-  const key = state.settings.syncProfile || 'smooth';
-  if (key === 'accurate') return { preRollMs: 25, postRollMs: 120 };
-  if (key === 'aggressive') return { preRollMs: 85, postRollMs: 70 };
-  return { preRollMs: 45, postRollMs: 100 };
-}
-
-function renderSyncMetaV461() {
-  if (liveSyncProfileChipElV461) {
-    const profileLabel = { accurate: 'Profile Accurate', smooth: 'Profile Smooth', aggressive: 'Profile Aggressive' }[state.settings.syncProfile || 'smooth'] || 'Profile Smooth';
-    liveSyncProfileChipElV461.textContent = profileLabel;
-  }
-  if (liveSyncHintElV461) {
-    const cue = state.transcript?.cues?.[state.activeCueIndex];
-    if (cue?.text) {
-      liveSyncHintElV461.textContent = cue.text.replace(/\s+/g, ' ').slice(0, 160);
-    } else if (state.liveCaptureActive) {
-      liveSyncHintElV461.textContent = 'Live capture đang chạy. Transcript sẽ tự cập nhật khi subtitle đổi dòng.';
-    } else if (state.transcript?.cues?.length) {
-      liveSyncHintElV461.textContent = 'Timeline sync đang chạy. Có thể click vào từng dòng subtitle để tua video.';
-    } else {
-      liveSyncHintElV461.textContent = 'Timeline sync sẽ khởi động sau khi có transcript.';
-    }
-  }
-}
-
-function buildDiagnosticsFileBaseV461() {
-  const title = sanitizeFilename(state.videoTitle || state.tab?.title || 'subtitle-grabber');
-  const platform = state.currentPlatform || 'unknown';
-  return `${title} - ${platform}`;
-}
-
-function buildSessionLogTextV461(entries) {
-  return entries.map((entry) => `[${entry.time}] ${entry.kind.toUpperCase()}: ${entry.message}`).join('\n');
-}
-
-async function downloadDiagnosticsFileV461(filename, content, mimeType) {
-  const blob = new Blob([content], { type: mimeType || 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  try {
-    await chrome.downloads.download({ url, filename, saveAs: true });
-  } finally {
-    setTimeout(() => URL.revokeObjectURL(url), 30000);
-  }
-}
-
-function addSessionLogEntryV461(kind, message) {
-  const clean = String(message || '').trim();
-  if (!clean) return;
-  const signature = `${kind}|${clean}`;
-  const last = state.sessionLogV461[state.sessionLogV461.length - 1];
-  if (last?.signature === signature) return;
-  const now = new Date();
-  state.sessionLogV461.push({
-    kind,
-    message: clean,
-    time: now.toLocaleTimeString('vi-VN', { hour12: false }),
-    iso: now.toISOString(),
-    signature,
-  });
-  if (state.sessionLogV461.length > V461_SESSION_LOG_LIMIT) {
-    state.sessionLogV461 = state.sessionLogV461.slice(-V461_SESSION_LOG_LIMIT);
-  }
-}
-
-function addTranscriptSnapshotLogV461() {
-  const track = state.sourceTracks?.[state.selectedSourceIndex] || {};
-  const count = Number(state.transcript?.cues?.length) || 0;
-  if (!count) return;
-  const sourceLabel = track.effectiveLabel || track.name || track.languageCode || 'source';
-  const strategy = track.fetchStrategy || (state.liveCaptureActive ? 'liveCapture' : 'fullTrack');
-  addSessionLogEntryV461('track', `Đã dựng transcript ${count} cues · ${sourceLabel} · ${strategy}`);
-}
-
-function summarizeTrackV461(track) {
-  if (!track) return null;
-  return {
-    label: track.effectiveLabel || track.name || track.languageCode || '',
-    languageCode: track.languageCode || '',
-    kind: track.kind || '',
-    fetchStrategy: track.fetchStrategy || '',
-    isTranslation: Boolean(track.isTranslation),
-    sourceLanguageCode: track.sourceLanguageCode || '',
-    targetLanguageCode: track.targetLanguageCode || '',
-    baseUrl: track.baseUrl ? 'available' : '',
-  };
-}
-
-function buildDiagnosticsObjectV461() {
-  const selectedTrack = state.sourceTracks?.[state.selectedSourceIndex] || null;
-  const originalTrack = state.sourceTracks?.[state.originalTrackIndex] || null;
-  const activeCue = state.transcript?.cues?.[state.activeCueIndex] || null;
-  return {
-    generatedAt: new Date().toISOString(),
-    extensionVersion: '4.6.1',
-    platform: state.currentPlatform || null,
-    url: state.lastActiveUrl || state.tab?.url || '',
-    tabId: state.tab?.id || null,
-    videoTitle: state.videoTitle || state.tab?.title || '',
-    channelName: state.channelName || '',
-    videoId: state.videoId || '',
-    badges: {
-      subtitle: subtitleBadgeEl?.textContent?.trim() || '',
-      preview: previewMetaEl?.textContent?.trim() || '',
-      status: statusEl?.textContent?.trim() || '',
-      lineCount: lineCountBadgeEl?.textContent?.trim() || '',
-    },
-    tracks: {
-      sourceCount: Array.isArray(state.sourceTracks) ? state.sourceTracks.length : 0,
-      selectedIndex: Number.isInteger(state.selectedSourceIndex) ? state.selectedSourceIndex : -1,
-      selected: summarizeTrackV461(selectedTrack),
-      original: summarizeTrackV461(originalTrack),
-      translationLanguageCount: Array.isArray(state.translationLanguages) ? state.translationLanguages.length : 0,
-      selectedTargetLanguage: state.selectedTargetLanguage || '',
-    },
-    transcript: {
-      mode: state.settings?.outputMode || '',
-      tab: state.previewTab || '',
-      cues: Number(state.transcript?.cues?.length) || 0,
-      rawSourceCues: Number(state.rawSourceCues?.length) || 0,
-      rawTranslatedCues: Number(state.rawTranslatedCues?.length) || 0,
-      activeCueIndex: Number.isInteger(state.activeCueIndex) ? state.activeCueIndex : -1,
-      activeCueText: activeCue?.text || '',
-    },
-    playback: {
-      isPlaying: Boolean(state.playbackIsPlaying),
-      timeMs: Number(state.playbackTimeMs) || 0,
-      rate: Number(state.playbackRate) || 1,
-      syncProfile: state.settings?.syncProfile || 'smooth',
-      syncOffsetMs: Number(state.settings?.syncOffsetMs) || 0,
-      youtubeLeadMs: Number(state.settings?.youtubeLeadMs) || 0,
-    },
-    settings: {
-      outputMode: state.settings?.outputMode || '',
-      bilingualLayout: state.settings?.bilingualLayout || '',
-      dedupeRepeats: Boolean(state.settings?.dedupeRepeats),
-      mergeShortCues: Boolean(state.settings?.mergeShortCues),
-      preferOriginalTrack: Boolean(state.settings?.preferOriginalTrack),
-      autoFetchOnSelectionChange: Boolean(state.settings?.autoFetchOnSelectionChange),
-      autoScrollLive: Boolean(state.settings?.autoScrollLive),
-      syncProfile: state.settings?.syncProfile || 'smooth',
-      syncOffsetMs: Number(state.settings?.syncOffsetMs) || 0,
-      youtubeLeadMs: Number(state.settings?.youtubeLeadMs) || 0,
-    },
-    liveCapture: {
-      active: Boolean(state.liveCaptureActive),
-      bufferedCues: Array.isArray(state.liveCaptureBuffer) ? state.liveCaptureBuffer.length : 0,
-      lastText: state.liveCaptureLastText || '',
-    },
-    debugTail: Array.isArray(state.debugLines) ? state.debugLines.slice(-20) : [],
-    sessionTail: Array.isArray(state.sessionLogV461) ? state.sessionLogV461.slice(-20) : [],
-  };
-}
-
-function buildDiagnosticsTextV461({ includeDebug = true, includeSession = true } = {}) {
-  const report = buildDiagnosticsObjectV461();
-  const lines = [
-    'Subtitle Grabber · Diagnostics bundle v4.6.1',
-    `Generated: ${report.generatedAt}`,
-    `Platform: ${report.platform || '-'}`,
-    `Title: ${report.videoTitle || '-'}`,
-    `URL: ${report.url || '-'}`,
-    `Track: ${report.tracks.selected?.label || '-'} (${report.tracks.selected?.fetchStrategy || 'fullTrack'})`,
-    `Transcript: ${report.transcript.cues} cues · rawSource=${report.transcript.rawSourceCues} · rawTranslated=${report.transcript.rawTranslatedCues}`,
-    `Playback: ${report.playback.isPlaying ? 'playing' : 'paused'} · time=${report.playback.timeMs} · rate=${report.playback.rate}`,
-    `Settings: autoScroll=${report.settings.autoScrollLive} · profile=${report.settings.syncProfile} · syncOffset=${report.settings.syncOffsetMs} · youtubeLead=${report.settings.youtubeLeadMs}`,
-  ];
-  if (includeDebug && report.debugTail.length) {
-    lines.push('', '--- Debug tail ---', ...report.debugTail);
-  }
-  if (includeSession && report.sessionTail.length) {
-    lines.push('', '--- Session tail ---', ...report.sessionTail.map((entry) => `[${entry.time}] ${entry.kind}: ${entry.message}`));
-  }
-  return lines.join('\n');
-}
-
-function renderDiagnosticsPanelV461({ forceRefreshStamp = false } = {}) {
-  if (!diagnosticPreviewElV461 || !diagnosticMetaElV461) return;
-  if (forceRefreshStamp || !state.diagnosticsRefreshedAtV461) {
-    state.diagnosticsRefreshedAtV461 = new Date().toLocaleTimeString('vi-VN', { hour12: false });
-  }
-  const sessionCount = Array.isArray(state.sessionLogV461) ? state.sessionLogV461.length : 0;
-  diagnosticMetaElV461.textContent = `Refreshed ${state.diagnosticsRefreshedAtV461} · ${sessionCount} session events · ${Number(state.transcript?.cues?.length) || 0} cues`;
-  diagnosticPreviewElV461.textContent = buildDiagnosticsTextV461({ includeDebug: true, includeSession: true });
-}
-
-function observeDiagnosticsStateV461({ force = false } = {}) {
-  const cueSignature = `${state.currentPlatform}|${Number(state.activeCueIndex) || -1}|${state.transcript?.cues?.length || 0}|${state.liveCaptureLastText || ''}`;
-  const track = state.sourceTracks?.[state.selectedSourceIndex] || null;
-  const trackSignature = `${track?.effectiveLabel || track?.languageCode || '-'}|${track?.fetchStrategy || '-'}|${state.selectedTargetLanguage || '-'}`;
-  const platformUrlSignature = `${state.currentPlatform}|${state.lastActiveUrl || state.tab?.url || ''}`;
-  if (force || cueSignature !== __v461ObserverState.lastCueSignature) {
-    __v461ObserverState.lastCueSignature = cueSignature;
-    const cue = state.transcript?.cues?.[state.activeCueIndex];
-    if (cue?.text) {
-      addSessionLogEntryV461('cue', cue.text.replace(/\s+/g, ' ').slice(0, 220));
-    } else if (state.liveCaptureLastText) {
-      addSessionLogEntryV461('cue', state.liveCaptureLastText.replace(/\s+/g, ' ').slice(0, 220));
-    }
-  }
-  if (force || trackSignature !== __v461ObserverState.lastTrackSignature) {
-    __v461ObserverState.lastTrackSignature = trackSignature;
-    if (trackSignature !== 'undefined') {
-      addSessionLogEntryV461('track', `Đang chọn ${track?.effectiveLabel || track?.name || track?.languageCode || '-'} · ${track?.fetchStrategy || 'fullTrack'}`);
-    }
-  }
-  if (force || platformUrlSignature !== __v461ObserverState.lastPlatformUrlSignature) {
-    __v461ObserverState.lastPlatformUrlSignature = platformUrlSignature;
-    addSessionLogEntryV461('platform', `${platformLabel(state.currentPlatform)} · ${state.lastActiveUrl || state.tab?.url || ''}`);
-  }
-  renderDiagnosticsPanelV461();
-}
-
-function startDiagnosticsObserverV461() {
-  if (__v461ObserverTimer) clearInterval(__v461ObserverTimer);
-  __v461ObserverTimer = window.setInterval(() => observeDiagnosticsStateV461(), 900);
-  observeDiagnosticsStateV461({ force: true });
-}
-
-startDiagnosticsObserverV461();
-window.addEventListener('beforeunload', () => {
-  if (__v461ObserverTimer) {
-    clearInterval(__v461ObserverTimer);
-    __v461ObserverTimer = null;
-  }
-});
-
-
-/* ===== Enhancement v4.7.0: per-site profile memory ===== */
-const siteProfileChipElV470 = document.getElementById('siteProfileChip');
-const siteProfileTitleElV470 = document.getElementById('siteProfileTitle');
-const siteProfileMetaElV470 = document.getElementById('siteProfileMeta');
-const resetSiteProfileBtnElV470 = document.getElementById('resetSiteProfileBtn');
-
-state.siteProfileBaseV470 = state.siteProfileBaseV470 || null;
-state.lastAppliedSiteProfileV470 = state.lastAppliedSiteProfileV470 || '';
-
-function clampNumberV470(value, min, max, fallback) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return fallback;
-  return Math.max(min, Math.min(max, number));
-}
-
-function buildSiteProfileV470(source = state.settings) {
-  return {
-    outputMode: ['original', 'translated', 'bilingual'].includes(source?.outputMode) ? source.outputMode : 'original',
-    preferredTargetLanguage: typeof source?.preferredTargetLanguage === 'string' ? source.preferredTargetLanguage : ORIGINAL_LANGUAGE_SENTINEL,
-    showTimestampInText: Boolean(source?.showTimestampInText),
-    bilingualLayout: source?.bilingualLayout === 'split' ? 'split' : 'stacked',
-    preferOriginalTrack: source?.preferOriginalTrack !== false,
-    autoFetchOnSelectionChange: source?.autoFetchOnSelectionChange !== false,
-    autoScrollLive: source?.autoScrollLive !== false,
-    syncOffsetMs: clampNumberV470(source?.syncOffsetMs, -500, 500, 0),
-    syncProfile: ['accurate', 'smooth', 'aggressive'].includes(source?.syncProfile) ? source.syncProfile : 'smooth',
-    youtubeLeadMs: clampNumberV470(source?.youtubeLeadMs, 0, 1200, 320),
-    dedupeRepeats: source?.dedupeRepeats !== false,
-    mergeShortCues: source?.mergeShortCues !== false,
-  };
-}
-
-function buildPlatformDefaultProfileV470(platform, baseProfile = null) {
-  const base = baseProfile || buildSiteProfileV470(state.siteProfileBaseV470 || state.settings);
-  if (platform === PLATFORM_NETFLIX) {
-    return {
-      ...base,
-      preferredTargetLanguage: ORIGINAL_LANGUAGE_SENTINEL,
-      outputMode: base.outputMode === 'translated' ? 'original' : base.outputMode,
-      syncProfile: 'accurate',
-      youtubeLeadMs: 0,
-    };
-  }
-  return {
-    ...base,
-    syncProfile: ['accurate', 'smooth', 'aggressive'].includes(base.syncProfile) ? base.syncProfile : 'smooth',
-    youtubeLeadMs: clampNumberV470(base.youtubeLeadMs, 0, 1200, 320),
-  };
-}
-
-function ensureSiteProfilesV470() {
-  const baseProfile = buildSiteProfileV470(state.siteProfileBaseV470 || state.settings);
-  const current = state.settings?.siteProfiles && typeof state.settings.siteProfiles === 'object' ? state.settings.siteProfiles : {};
-  state.settings.siteProfiles = {
-    youtube: { ...buildPlatformDefaultProfileV470(PLATFORM_YOUTUBE, baseProfile), ...(current.youtube || {}) },
-    netflix: { ...buildPlatformDefaultProfileV470(PLATFORM_NETFLIX, baseProfile), ...(current.netflix || {}) },
-  };
-  state.settings.siteProfiles.youtube = buildPlatformDefaultProfileV470(PLATFORM_YOUTUBE, state.settings.siteProfiles.youtube);
-  state.settings.siteProfiles.netflix = buildPlatformDefaultProfileV470(PLATFORM_NETFLIX, state.settings.siteProfiles.netflix);
-}
-
-function syncCurrentSiteProfileFromStateV470() {
-  if (!state.currentPlatform || ![PLATFORM_YOUTUBE, PLATFORM_NETFLIX].includes(state.currentPlatform)) return;
-  ensureSiteProfilesV470();
-  state.settings.siteProfiles[state.currentPlatform] = buildSiteProfileV470(state.settings);
-}
-
-function renderSiteProfileUiV470(platform = state.currentPlatform || '') {
-  const label = platform ? platformLabel(platform) : 'Auto';
-  const profile = platform && state.settings?.siteProfiles ? state.settings.siteProfiles[platform] : null;
-  if (siteProfileChipElV470) {
-    siteProfileChipElV470.textContent = platform ? `Profile memory · ${label}` : 'Profile memory · Auto';
-  }
-  if (siteProfileTitleElV470) {
-    siteProfileTitleElV470.textContent = platform ? `${label} profile active` : 'Auto profile';
-  }
-  if (siteProfileMetaElV470) {
-    if (profile) {
-      const modeLabel = { original: 'Original', translated: 'Translated', bilingual: 'Bilingual' }[profile.outputMode] || 'Original';
-      const leadLabel = platform === PLATFORM_YOUTUBE ? ` · lead ${profile.youtubeLeadMs} ms` : '';
-      siteProfileMetaElV470.textContent = `Mode ${modeLabel} · ${profile.syncProfile} · offset ${profile.syncOffsetMs} ms${leadLabel}. Các setting chính sẽ được nhớ riêng cho ${label}.`;
-    } else {
-      siteProfileMetaElV470.textContent = 'YouTube và Netflix sẽ nhớ riêng output mode, sync profile, offset, lead và một số tuỳ chọn hiển thị.';
-    }
-  }
-  if (resetSiteProfileBtnElV470) {
-    resetSiteProfileBtnElV470.disabled = !platform;
-  }
-}
-
-function applySiteProfileV470(platform, { silent = false } = {}) {
-  if (!platform || ![PLATFORM_YOUTUBE, PLATFORM_NETFLIX].includes(platform)) {
-    renderSiteProfileUiV470('');
-    return;
-  }
-  ensureSiteProfilesV470();
-  const profile = state.settings.siteProfiles[platform] || buildPlatformDefaultProfileV470(platform);
-  Object.assign(state.settings, profile);
-  state.selectedTargetLanguage = state.settings.preferredTargetLanguage || ORIGINAL_LANGUAGE_SENTINEL;
-  state.showTimestampInText = Boolean(state.settings.showTimestampInText);
-  state.bilingualLayout = state.settings.bilingualLayout || 'stacked';
-  state.lastAppliedSiteProfileV470 = platform;
-  applySettingsToUi();
-  renderSiteProfileUiV470(platform);
-  if (!silent && typeof addSessionLogEntryV461 === 'function') {
-    addSessionLogEntryV461('site-profile', `Áp dụng profile riêng cho ${platformLabel(platform)}.`);
-  }
-}
-
-async function resetCurrentSiteProfileV470() {
-  const platform = state.currentPlatform || '';
-  if (!platform || ![PLATFORM_YOUTUBE, PLATFORM_NETFLIX].includes(platform)) return;
-  ensureSiteProfilesV470();
-  const baseProfile = buildSiteProfileV470(state.siteProfileBaseV470 || state.settings);
-  state.settings.siteProfiles[platform] = buildPlatformDefaultProfileV470(platform, baseProfile);
-  applySiteProfileV470(platform, { silent: true });
-  await saveSettings();
-  rebuildTargetLanguageOptions();
-  updateSyncOffsetUi();
-  renderSiteProfileUiV470(platform);
-  if (state.rawSourceCues?.length) {
-    await refreshRenderingAfterSettingChange();
-  }
-  if (typeof renderDiagnosticsPanelV461 === 'function') renderDiagnosticsPanelV461({ forceRefreshStamp: true });
-  if (typeof addSessionLogEntryV461 === 'function') addSessionLogEntryV461('site-profile', `Đã reset profile của ${platformLabel(platform)}.`);
-  setStatus(`Đã reset site profile của ${platformLabel(platform)}.`);
-}
-
-resetSiteProfileBtnElV470?.addEventListener('click', () => {
-  resetCurrentSiteProfileV470().catch((error) => {
-    setStatus(error?.message || 'Không reset được site profile.');
-  });
-});
-
-const __v470BaseLoadSettings = loadSettings;
-loadSettings = async function (...args) {
-  await __v470BaseLoadSettings.apply(this, args);
-  state.siteProfileBaseV470 = buildSiteProfileV470(state.settings);
-  ensureSiteProfilesV470();
-};
-
-const __v470BaseSaveSettings = saveSettings;
-saveSettings = async function (...args) {
-  syncCurrentSiteProfileFromStateV470();
-  return __v470BaseSaveSettings.apply(this, args);
-};
-
-const __v470BaseLoadTracks = loadTracks;
-loadTracks = async function (...args) {
-  try {
-    const tab = state.tab || await getActiveTab();
-    const detectedPlatform = detectPlatformFromUrl(tab?.url || '');
-    if (detectedPlatform && detectedPlatform !== state.lastAppliedSiteProfileV470) {
-      applySiteProfileV470(detectedPlatform, { silent: true });
-    } else {
-      renderSiteProfileUiV470(detectedPlatform || state.currentPlatform || '');
-    }
-  } catch {
-    renderSiteProfileUiV470(state.currentPlatform || '');
-  }
-  const result = await __v470BaseLoadTracks.apply(this, args);
-  renderSiteProfileUiV470(state.currentPlatform || '');
-  return result;
-};
-
-const __v470BaseBuildDiagnosticsObjectV461 = buildDiagnosticsObjectV461;
-buildDiagnosticsObjectV461 = function (...args) {
-  const report = __v470BaseBuildDiagnosticsObjectV461.apply(this, args);
-  report.siteProfile = {
-    currentPlatform: state.currentPlatform || null,
-    active: state.currentPlatform && state.settings?.siteProfiles ? cloneData(state.settings.siteProfiles[state.currentPlatform]) : null,
-    youtube: state.settings?.siteProfiles ? cloneData(state.settings.siteProfiles.youtube) : null,
-    netflix: state.settings?.siteProfiles ? cloneData(state.settings.siteProfiles.netflix) : null,
-  };
-  return report;
-};
-
-const __v470BaseBuildDiagnosticsTextV461 = buildDiagnosticsTextV461;
-buildDiagnosticsTextV461 = function (...args) {
-  const baseText = __v470BaseBuildDiagnosticsTextV461.apply(this, args);
-  const report = buildDiagnosticsObjectV461();
-  const active = report.siteProfile?.active || null;
-  const summary = active
-    ? `Site profile: ${platformLabel(report.siteProfile.currentPlatform)} · mode=${active.outputMode} · profile=${active.syncProfile} · offset=${active.syncOffsetMs} · lead=${active.youtubeLeadMs}`
-    : 'Site profile: -';
-  return `${baseText}
-${summary}`;
-};
-
-const __v470BaseApplySettingsToUi = applySettingsToUi;
-applySettingsToUi = function (...args) {
-  const result = __v470BaseApplySettingsToUi.apply(this, args);
-  renderSiteProfileUiV470(state.currentPlatform || state.lastAppliedSiteProfileV470 || '');
-  return result;
-};

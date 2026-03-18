@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Subtitle Grabber</title>
+    <title>YT Subtitle Grabber</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <main class="app-shell">
-      <div class="app-frame">
+      <div class="app-frame is-default">
         <div class="app-glow"></div>
 
         <header class="app-header">
@@ -21,7 +21,7 @@
             </div>
             <div class="brand-copy">
               <h1>Subtitle Grabber</h1>
-              <p>Extract • Review • Export</p>
+              <p>YouTube • Netflix • Pin review</p>
             </div>
           </div>
 
@@ -33,14 +33,7 @@
               </svg>
             </button>
 
-            <button
-              id="historyBtn"
-              class="icon-btn"
-              type="button"
-              title="History"
-              aria-expanded="false"
-              aria-controls="historyPanel"
-            >
+            <button id="historyBtn" class="icon-btn" type="button" title="History" aria-expanded="false" aria-controls="historyPanel">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M3 12a9 9 0 1 0 3-6.7" />
                 <path d="M3 4v5h5" />
@@ -48,12 +41,7 @@
               </svg>
             </button>
 
-            <button
-              id="pinBtn"
-              class="icon-btn"
-              type="button"
-              title="Pin"
-            >
+            <button id="pinBtn" class="icon-btn" type="button" title="Pin">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M14 4 20 10" />
                 <path d="M4 20l6-6" />
@@ -63,14 +51,7 @@
               </svg>
             </button>
 
-            <button
-              id="settingsBtn"
-              class="icon-btn"
-              type="button"
-              title="Settings"
-              aria-expanded="false"
-              aria-controls="settingsPanel"
-            >
+            <button id="settingsBtn" class="icon-btn" type="button" title="Settings" aria-expanded="false" aria-controls="settingsPanel">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="3.2" />
                 <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 0 1-2.82 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.55V22a2 2 0 0 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.57 1.7 1.7 0 0 0-1.8.36l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1.03H2a2 2 0 0 1 0-4h.09a1.7 1.7 0 0 0 1.57-1.11 1.7 1.7 0 0 0-.36-1.8l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H8a1.7 1.7 0 0 0 1.03-1.55V2a2 2 0 0 1 4 0v.09a1.7 1.7 0 0 0 1.11 1.57 1.7 1.7 0 0 0 1.8-.36l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V8c0 .7.42 1.33 1.07 1.59.15.06.31.1.48.1H22a2 2 0 0 1 0 4h-.09A1.7 1.7 0 0 0 20.34 15" />
@@ -81,7 +62,7 @@
 
         <div class="app-body">
           <section class="card hero-card">
-            <div class="hero-top">
+            <div class="hero-top compact-top">
               <div class="video-thumb-wrap">
                 <img id="videoThumb" class="video-thumb" alt="" />
               </div>
@@ -90,19 +71,41 @@
                 <div class="meta-badges">
                   <span id="subtitleBadge" class="status-badge is-idle">Waiting</span>
                   <span id="lineCountBadge" class="status-pill">0 lines</span>
+                  <span id="platformBadge" class="status-pill">Workspace</span>
                 </div>
 
                 <h2 id="videoTitle">Mở một video YouTube hoặc Netflix để bắt đầu</h2>
-                <p id="channelName" class="channel-name">Extension sẽ đọc video đang mở trong tab hiện tại</p>
+                <p id="channelName" class="channel-name">Extension sẽ đọc tab đang mở và tối ưu giao diện theo từng nền tảng</p>
                 <p id="trackMeta" class="track-meta">Track gốc: -</p>
               </div>
             </div>
 
-            <div class="hero-chip-row">
-              <span class="hero-chip">Low-latency sync</span>
-              <span class="hero-chip">YouTube + Netflix</span>
+            <div class="hero-chip-row compact-chips">
+              <span class="hero-chip">Cleaner UI</span>
+              <span class="hero-chip">Live pin</span>
               <span class="hero-chip">Range export</span>
-              <span id="siteProfileChip" class="hero-chip">Profile memory · Auto</span>
+              <span id="siteProfileChip" class="hero-chip">Profile · Auto</span>
+            </div>
+
+            <div class="platform-profile-row">
+              <div class="sync-preset-row compact-sync-row">
+                <span class="sync-preset-label">Quick sync</span>
+                <div class="sync-preset-group" role="group" aria-label="Quick sync presets">
+                  <button id="syncPresetAccurateBtn" class="sync-preset-btn" type="button">Accurate</button>
+                  <button id="syncPresetSmoothBtn" class="sync-preset-btn is-active" type="button">Smooth</button>
+                  <button id="syncPresetAggressiveBtn" class="sync-preset-btn" type="button">Aggressive</button>
+                </div>
+                <span id="pinModeChip" class="sync-preset-note">Pin · Dual</span>
+              </div>
+
+              <div class="quick-pin-row">
+                <div class="quick-pin-group" role="group" aria-label="Pin mode presets">
+                  <button id="pinModeCompactQuickBtn" class="quick-pin-btn" type="button">Compact</button>
+                  <button id="pinModeDualQuickBtn" class="quick-pin-btn is-active" type="button">Dual</button>
+                  <button id="pinModeReviewQuickBtn" class="quick-pin-btn" type="button">Review</button>
+                </div>
+                <button id="reopenPinBtn" class="secondary-btn ghost-btn" type="button">Reopen pin</button>
+              </div>
             </div>
 
             <div class="hero-controls-grid">
@@ -130,20 +133,22 @@
               </div>
             </div>
 
-            <div class="hero-footer">
-              <p id="status" class="status-line">Mở một video YouTube hoặc Netflix rồi bấm Get subtitles hoặc refresh.</p>
-              <button id="getSubtitlesBtn" class="primary-btn" type="button">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M12 3v18" />
-                  <path d="M7 8h9.5a4.5 4.5 0 1 1 0 9H7" />
-                </svg>
-                Get subtitles
-              </button>
+            <div class="hero-footer compact-footer">
+              <p id="status" class="status-line">Mở một video YouTube rồi bấm Get subtitles hoặc dùng Pin cho Netflix.</p>
+              <div class="hero-inline-actions">
+                <button id="getSubtitlesBtn" class="primary-btn" type="button">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 3v18" />
+                    <path d="M7 8h9.5a4.5 4.5 0 1 1 0 9H7" />
+                  </svg>
+                  <span class="primary-btn-label">Get subtitles</span>
+                </button>
+              </div>
             </div>
           </section>
 
           <section class="card workspace-card">
-            <div class="section-head">
+            <div class="section-head section-head-compact">
               <div>
                 <p class="section-kicker">Transcript workspace</p>
                 <h3>Readable output panel</h3>
@@ -164,15 +169,6 @@
             </div>
 
             <p id="searchInfo" class="search-info">Chưa tìm kiếm.</p>
-
-            <div class="live-sync-bar">
-              <span id="playbackStatusChip" class="panel-chip">Sync idle</span>
-              <span id="playbackTimeChip" class="panel-chip">00:00:00,000</span>
-              <span id="activeCueChip" class="panel-chip">Cue -</span>
-              <span id="liveSyncProfileChip" class="panel-chip">Profile Smooth</span>
-              <span class="panel-chip">Click line to seek</span>
-            </div>
-            <p id="liveSyncHint" class="search-info">Timeline sync chỉ chạy khi popup đang mở. Có thể click vào từng dòng subtitle để tua video.</p>
 
             <div class="tabs-wrap top-tabs" role="tablist" aria-label="Transcript modes">
               <button class="tab-btn is-active" type="button" data-tab="text" role="tab" aria-selected="true">Text</button>
@@ -234,23 +230,6 @@
                 <pre id="debug" class="debug">Chưa có log.</pre>
               </div>
             </details>
-
-            <details class="debug-card diagnostics-card">
-              <summary>
-                <span>Diagnostics &amp; session</span>
-                <span class="summary-note">Bug bundle · session export</span>
-              </summary>
-              <div class="debug-body diagnostics-body">
-                <div class="diagnostic-actions">
-                  <button id="refreshDiagnosticsBtn" class="mini-btn" type="button">Refresh report</button>
-                  <button id="copyDiagnosticsBtn" class="mini-btn" type="button">Copy bundle</button>
-                  <button id="exportDiagnosticsBtn" class="mini-btn" type="button">Export JSON</button>
-                  <button id="exportSessionLogBtn" class="mini-btn" type="button">Export session</button>
-                </div>
-                <p id="diagnosticMeta" class="search-info">Diagnostics sẽ hiện ở đây sau khi popup sẵn sàng.</p>
-                <pre id="diagnosticPreview" class="debug">Chưa có capability report.</pre>
-              </div>
-            </details>
           </section>
         </div>
 
@@ -275,22 +254,6 @@
                 <option value="stacked">Stacked · gốc trên / dịch dưới</option>
                 <option value="split">Split · trái / phải</option>
               </select>
-            </div>
-
-            <div class="setting-box">
-              <label for="syncProfileSelect">Timeline sync profile</label>
-              <select id="syncProfileSelect">
-                <option value="accurate">Accurate · ổn định, ít nhảy</option>
-                <option value="smooth">Smooth · cân bằng</option>
-                <option value="aggressive">Aggressive · bám giọng nhanh hơn</option>
-              </select>
-              <small class="field-help">Chỉ thay đổi cách theo dõi cue theo thời gian, không đụng vào luồng fetch subtitle đang ổn.</small>
-            </div>
-
-            <div class="setting-box">
-              <label for="youtubeLeadInput">YouTube lead (ms)</label>
-              <input id="youtubeLeadInput" type="number" min="0" max="1200" step="10" value="320" />
-              <small class="field-help">Đẩy cue hiển thị sớm hơn để bám giọng đọc YouTube.</small>
             </div>
 
             <div class="toggle-list">
@@ -338,17 +301,6 @@
                 </span>
               </label>
 
-              <label class="toggle-row" for="autoScrollLiveCheckbox">
-                <div>
-                  <span>Tự cuộn theo câu đang phát</span>
-                  <small>Giúp popup bám theo subtitle hiện tại khi video đang chạy</small>
-                </div>
-                <span class="switch">
-                  <input id="autoScrollLiveCheckbox" type="checkbox" checked />
-                  <span class="slider"></span>
-                </span>
-              </label>
-
               <label class="toggle-row" for="timestampToggle">
                 <div>
                   <span>Hiện timestamp trong tab Text</span>
@@ -359,30 +311,6 @@
                   <span class="slider"></span>
                 </span>
               </label>
-            </div>
-
-
-
-            <div class="setting-box">
-              <label>Site profile memory</label>
-              <div class="site-profile-row">
-                <div class="site-profile-copy">
-                  <strong id="siteProfileTitle">Auto profile</strong>
-                  <p id="siteProfileMeta" class="setting-help">YouTube và Netflix sẽ nhớ riêng output mode, sync profile, offset, lead và một số tuỳ chọn hiển thị.</p>
-                </div>
-                <button id="resetSiteProfileBtn" class="mini-btn ghost-inline" type="button">Reset site</button>
-              </div>
-            </div>
-
-            <div class="setting-box">
-              <label for="syncOffsetRange">Playback sync offset</label>
-              <input id="syncOffsetRange" type="range" min="-500" max="500" step="10" value="0" />
-              <div class="range-inline-meta">
-                <span>Delay</span>
-                <strong id="syncOffsetValue">0 ms</strong>
-                <span>Advance</span>
-              </div>
-              <p class="setting-help">Nếu dòng active hơi sớm hoặc muộn, chỉnh offset theo mili giây.</p>
             </div>
           </div>
         </section>
@@ -424,14 +352,7 @@
             </button>
 
             <div class="export-wrap">
-              <button
-                id="exportMenuBtn"
-                class="secondary-btn"
-                type="button"
-                disabled
-                aria-expanded="false"
-                aria-controls="exportMenu"
-              >
+              <button id="exportMenuBtn" class="secondary-btn" type="button" disabled aria-expanded="false" aria-controls="exportMenu">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M12 3v12" />
                   <path d="m7 10 5 5 5-5" />
@@ -452,12 +373,6 @@
                 <button id="copySrtBtn" type="button" disabled>Copy SRT</button>
               </div>
             </div>
-          </div>
-
-          <div class="tabs-wrap footer-tabs" role="tablist" aria-label="Footer transcript modes">
-            <button class="tab-btn is-active" type="button" data-tab="text" role="tab" aria-selected="true">Text</button>
-            <button class="tab-btn" type="button" data-tab="timed" role="tab" aria-selected="false">Timed</button>
-            <button class="tab-btn" type="button" data-tab="srt" role="tab" aria-selected="false">SRT</button>
           </div>
         </footer>
       </div>
