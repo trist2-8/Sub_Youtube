@@ -6,15 +6,15 @@ const MAX_HISTORY_ITEMS = 10;
 const WATCH_INTERVAL_MS = 1600;
 
 const DEFAULT_PIN_PREFS = {
-  default: { width: 780, height: 560, mode: 'dual', syncPreset: 'smooth' },
-  youtube: { width: 780, height: 560, mode: 'dual', syncPreset: 'smooth' },
-  netflix: { width: 920, height: 620, mode: 'review', syncPreset: 'smooth' },
+  default: { width: 980, height: 720, mode: 'dual', syncPreset: 'smooth' },
+  youtube: { width: 1040, height: 760, mode: 'dual', syncPreset: 'smooth' },
+  netflix: { width: 1220, height: 860, mode: 'review', syncPreset: 'smooth' },
 };
 
 const SYNC_PRESET_MAP = {
-  accurate: { label: 'Accurate', youtubeLeadMs: 60 },
-  smooth: { label: 'Smooth', youtubeLeadMs: 180 },
-  aggressive: { label: 'Aggressive', youtubeLeadMs: 300 },
+  accurate: { label: 'Accurate', youtubeLeadMs: 180 },
+  smooth: { label: 'Smooth', youtubeLeadMs: 320 },
+  aggressive: { label: 'Aggressive', youtubeLeadMs: 460 },
 };
 
 const state = {
@@ -58,7 +58,7 @@ const state = {
     bilingualLayout: 'stacked',
     preferOriginalTrack: true,
     autoFetchOnSelectionChange: true,
-    youtubeLeadMs: 180,
+    youtubeLeadMs: 320,
   },
   pinPrefs: JSON.parse(JSON.stringify(DEFAULT_PIN_PREFS)),
 };
@@ -122,11 +122,6 @@ const channelNameEl = document.getElementById('channelName');
 const trackMetaEl = document.getElementById('trackMeta');
 const subtitleBadgeEl = document.getElementById('subtitleBadge');
 const lineCountBadgeEl = document.getElementById('lineCountBadge');
-const platformBadgeEl = document.getElementById('platformBadge');
-const appFrameEl = document.querySelector('.app-frame');
-const heroControlsGridEl = document.querySelector('.hero-controls-grid');
-const selectionCardEl = document.querySelector('.selection-card');
-const primaryButtonLabelEl = document.querySelector('.primary-btn-label');
 
 const searchInputEl = document.getElementById('searchInput');
 const searchInfoEl = document.getElementById('searchInfo');
@@ -158,7 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
 window.addEventListener('beforeunload', stopActiveTabWatcher);
 
 refreshBtn?.addEventListener('click', () => loadTracks({ force: true }));
-getSubtitlesBtn?.addEventListener('click', () => handlePrimaryAction());
+getSubtitlesBtn?.addEventListener('click', () => loadSelectedTrack());
 pinBtn?.addEventListener('click', () => openPinnedWindow());
 reopenPinBtn?.addEventListener('click', () => openPinnedWindow({ reopen: true }));
 Object.entries(syncPresetButtons).forEach(([preset, buttons]) => buttons.forEach((button) => button?.addEventListener('click', () => applySyncPreset(preset))));
@@ -344,7 +339,6 @@ async function init() {
   await loadPinPrefs();
   await loadHistory();
   applySettingsToUi();
-  setPlatformLayout('default');
   renderHistory();
   syncTabUi();
   syncSelectionModeUi();
@@ -715,37 +709,6 @@ function updateSiteProfileUi() {
   });
 }
 
-function setPlatformLayout(platform = 'default') {
-  const resolved = ['youtube', 'netflix'].includes(String(platform)) ? String(platform) : 'default';
-
-  if (appFrameEl) {
-    appFrameEl.classList.remove('is-youtube', 'is-netflix', 'is-default');
-    appFrameEl.classList.add(`is-${resolved}`);
-  }
-
-  if (platformBadgeEl) {
-    platformBadgeEl.textContent = resolved === 'youtube' ? 'YouTube workspace' : resolved === 'netflix' ? 'Netflix live pin' : 'Unsupported tab';
-  }
-
-  if (primaryButtonLabelEl) {
-    primaryButtonLabelEl.textContent = resolved === 'netflix' ? 'Open live pin' : 'Get subtitles';
-  }
-
-  if (getSubtitlesBtn) {
-    getSubtitlesBtn.title = resolved === 'netflix' ? 'Mở cửa sổ pin cho Netflix' : 'Tải subtitle hiện tại';
-  }
-
-  if (heroControlsGridEl) heroControlsGridEl.toggleAttribute('hidden', resolved === 'netflix');
-  if (selectionCardEl) selectionCardEl.classList.toggle('hidden', resolved !== 'youtube');
-}
-
-function handlePrimaryAction() {
-  if (state.activePlatform === 'netflix') {
-    return openPinnedWindow();
-  }
-  return loadSelectedTrack();
-}
-
 async function applyPinModePreset(mode) {
   const resolvedMode = ['compact', 'dual', 'review'].includes(String(mode)) ? String(mode) : 'dual';
   const platform = state.activePlatform || detectPlatform(state.tab?.url) || 'default';
@@ -967,9 +930,8 @@ async function fetchTrackWithCache(track) {
 }
 
 function hydrateVideoCardIdle() {
-  setPlatformLayout(state.activePlatform || 'default');
-  if (videoTitleEl) videoTitleEl.textContent = 'Mở một video YouTube hoặc Netflix để bắt đầu';
-  if (channelNameEl) channelNameEl.textContent = 'Extension sẽ đọc tab đang mở và tối ưu giao diện theo từng nền tảng';
+  if (videoTitleEl) videoTitleEl.textContent = 'Mở một video YouTube để bắt đầu';
+  if (channelNameEl) channelNameEl.textContent = 'Extension sẽ đọc video đang mở trong tab hiện tại';
   if (trackMetaEl) trackMetaEl.textContent = 'Track gốc: -';
   setLineCount(0);
 
@@ -983,12 +945,11 @@ function hydrateVideoCardIdle() {
 }
 
 function hydrateVideoCard() {
-  setPlatformLayout(state.activePlatform || 'default');
-  if (videoTitleEl) videoTitleEl.textContent = state.videoTitle || 'Subtitle Grabber';
-  if (channelNameEl) channelNameEl.textContent = state.channelName || (state.activePlatform === 'netflix' ? 'Netflix' : 'YouTube');
+  if (videoTitleEl) videoTitleEl.textContent = state.videoTitle || 'YT Subtitle Grabber';
+  if (channelNameEl) channelNameEl.textContent = state.channelName || 'YouTube';
   updateTrackMeta();
 
-  const thumbnailUrl = state.activePlatform === 'youtube' ? buildYoutubeThumbnailUrl(state.videoId) : '';
+  const thumbnailUrl = buildYoutubeThumbnailUrl(state.videoId);
   if (videoThumbEl) {
     if (thumbnailUrl) {
       videoThumbEl.src = thumbnailUrl;
@@ -998,20 +959,13 @@ function hydrateVideoCard() {
       };
     } else {
       videoThumbEl.removeAttribute('src');
-      videoThumbEl.alt = state.activePlatform === 'netflix' ? 'Netflix preview' : '';
+      videoThumbEl.alt = '';
     }
   }
 }
 
 function updateTrackMeta() {
   if (!trackMetaEl) return;
-
-  if (state.activePlatform === 'netflix') {
-    const prefs = getPlatformPrefs('netflix');
-    const preset = SYNC_PRESET_MAP[prefs.syncPreset || 'smooth']?.label || 'Smooth';
-    trackMetaEl.textContent = `Pin mode: ${prefs.mode || 'dual'} · Sync: ${preset} · Netflix ưu tiên live/full transcript trong cửa sổ Pin`;
-    return;
-  }
 
   const selectedTrack = state.sourceTracks[state.selectedSourceIndex];
   const originalTrack = state.sourceTracks[state.originalTrackIndex];
@@ -1176,26 +1130,21 @@ async function loadTracks(options = {}) {
 
     state.lastActiveUrl = tab.url;
     state.activePlatform = detectPlatform(tab.url);
-    setPlatformLayout(state.activePlatform);
     updateSiteProfileUi();
 
     if (!isSupportedYoutubeUrl(tab.url)) {
-      state.videoTitle = state.activePlatform === 'netflix' ? sanitizeFilename(tab.title || 'Netflix') : 'Mở một video YouTube để bắt đầu';
-      state.channelName = state.activePlatform === 'netflix' ? 'Netflix live subtitle workspace' : 'Extension sẽ đọc video đang mở trong tab hiện tại';
+      state.videoTitle = 'Mở một video YouTube để bắt đầu';
+      state.channelName = 'Extension sẽ đọc video đang mở trong tab hiện tại';
       state.videoId = '';
       state.sourceTracks = [];
       state.translationLanguages = [];
       state.selectedSourceIndex = -1;
-      state.originalTrackIndex = -1;
-      state.originalLanguageCode = '';
-      state.audioLanguageCode = '';
-      state.defaultTrackReason = '';
       renderSourceTrackOptions();
       rebuildTargetLanguageOptions();
       hydrateVideoCard();
-      setSubtitleBadge(state.activePlatform === 'netflix' ? 'Netflix pin' : 'Waiting', state.activePlatform === 'netflix' ? 'is-available' : 'is-idle');
-      setStatus(state.activePlatform === 'netflix' ? 'Netflix dùng Pin làm workspace chính: mở live pin để theo dõi subtitle gọn hơn.' : 'Hãy mở video YouTube dạng /watch hoặc /shorts.');
-      renderEmptyPreview(state.activePlatform === 'netflix' ? 'Netflix hiện tối ưu theo dõi bằng cửa sổ Pin. Dùng Open live pin để xem live capture hoặc full transcript khi có track.' : 'Không phải trang video YouTube.');
+      setSubtitleBadge('Waiting', 'is-idle');
+      setStatus(state.activePlatform === 'netflix' ? 'Popup chính hiện tối ưu cho YouTube. Bạn vẫn có thể dùng Pin cho Netflix.' : 'Hãy mở video YouTube dạng /watch hoặc /shorts.');
+      renderEmptyPreview(state.activePlatform === 'netflix' ? 'Netflix hiện ưu tiên cửa sổ Pin để theo dõi subtitle.' : 'Không phải trang video YouTube.');
       return;
     }
 

@@ -6,7 +6,7 @@
     <title>Pinned Subtitle</title>
     <link rel="stylesheet" href="pinned.css" />
   </head>
-  <body class="pin-mode-dual platform-default no-output">
+  <body>
     <main class="pin-shell">
       <header class="pin-header">
         <div class="pin-brand">
@@ -23,10 +23,10 @@
         </div>
 
         <div class="pin-header-actions">
-          <button id="pinAutoScrollBtn" class="pill-btn is-active" type="button" title="Tự cuộn theo câu đang phát">Auto scroll</button>
-          <button id="pinAutoPauseBtn" class="pill-btn" type="button" title="Tạm dừng ở mỗi subtitle mới như Language Reactor (Q)">Auto pause</button>
-          <button id="pinRevealNextBtn" class="pill-btn" type="button" title="Hiện hoặc ẩn câu tiếp theo kiểu Language Reactor (E)">Reveal next</button>
-          <button id="pinCopyCueBtn" class="pill-btn" type="button" title="Sao chép câu hiện tại (C)">Copy cue</button>
+          <button id="pinAutoScrollBtn" class="pill-btn is-active" type="button" title="Tự cuộn theo câu đang phát">Auto</button>
+          <button id="pinAutoPauseBtn" class="pill-btn" type="button" title="Tự pause mỗi khi sang câu mới (Q)">Auto pause</button>
+          <button id="pinLoopCueBtn" class="pill-btn" type="button" title="Lặp lại cue hiện tại (L)">Loop cue</button>
+          <button id="pinRevealNextBtn" class="pill-btn" type="button" title="Hiện hoặc ẩn câu tiếp theo (E)">Reveal next</button>
           <button id="pinCopyTranscriptBtn" class="pill-btn" type="button" title="Sao chép toàn bộ transcript">Copy all</button>
           <button id="refreshPinnedBtn" class="icon-btn" type="button" title="Làm mới">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -37,76 +37,60 @@
         </div>
       </header>
 
-      <section class="pin-chip-row">
-        <span id="pinPlatformChip" class="meta-chip">Ready</span>
+      <section class="pin-meta">
+        <span id="pinPlatformChip" class="meta-chip accent">Ready</span>
         <span id="pinModeChip" class="meta-chip">Dual</span>
-        <span id="pinSyncChip" class="meta-chip">Sync</span>
         <span id="pinStatusChip" class="meta-chip">Waiting</span>
         <span id="pinTimeChip" class="meta-chip">00:00:00,000</span>
         <span id="pinCountChip" class="meta-chip">0 dòng</span>
       </section>
 
-      <section class="pin-toolbar">
-        <div class="toolbar-copy">
-          <span class="pin-kicker">Playback tools</span>
-          <strong>Sync theo thời gian + điều khiển từng cue</strong>
-        </div>
-        <div class="toolbar-actions">
-          <button id="pinPrevCueBtn" class="toolbar-btn" type="button" title="Previous subtitle (A)">← Prev</button>
-          <button id="pinReplayCueBtn" class="toolbar-btn" type="button" title="Replay subtitle (S)">↺ Replay</button>
-          <button id="pinPlayPauseBtn" class="toolbar-btn" type="button" title="Play/Pause (W)">Pause</button>
-          <button id="pinNextCueBtn" class="toolbar-btn" type="button" title="Next subtitle (D)">Next →</button>
-        </div>
-      </section>
-
-      <section class="pin-study-rail">
+      <section class="pin-study-strip">
         <article class="study-card">
-          <span class="pin-kicker">Previous cue</span>
+          <span class="pin-kicker">Previous</span>
           <div id="pinPrevPreviewText" class="study-preview dim">—</div>
         </article>
-        <article class="study-card study-card-current">
-          <span class="pin-kicker">Study shortcuts</span>
-          <div id="pinHotkeysHint" class="study-preview compact">A prev · S replay · D next · Q auto pause · W play/pause · E reveal next · C copy cue</div>
+
+        <article class="study-card study-card-controls">
+          <div class="study-actions">
+            <button id="pinPrevCueBtn" class="control-btn" type="button" title="Về câu trước (A)">Prev</button>
+            <button id="pinReplayCueBtn" class="control-btn is-primary" type="button" title="Phát lại cue hiện tại (S)">Replay</button>
+            <button id="pinNextCueBtn" class="control-btn" type="button" title="Sang câu tiếp theo (D)">Next</button>
+            <button id="pinPlayPauseBtn" class="control-btn" type="button" title="Play hoặc pause (W)">Play/Pause</button>
+            <button id="pinCopyCurrentBtn" class="control-btn" type="button" title="Copy cue hiện tại (C)">Copy cue</button>
+          </div>
+          <div id="pinHotkeysHint" class="study-preview compact">A prev · S replay · D next · Q auto pause · W play/pause · E reveal next · C copy cue · L loop cue</div>
         </article>
+
         <article id="pinNextPreviewCard" class="study-card is-blurred">
-          <span class="pin-kicker">Next cue</span>
+          <span class="pin-kicker">Next</span>
           <div id="pinNextPreviewText" class="study-preview">Next subtitle hidden</div>
         </article>
       </section>
 
-      <section class="pin-current-card">
-        <div class="pin-current-head">
-          <div>
-            <span class="pin-kicker">Now playing</span>
-            <strong id="pinCurrentHeading">Cue đang phát</strong>
+      <section class="pin-current-grid">
+        <article id="pinSourceCard" class="pin-card pin-card-current">
+          <div class="pin-label-wrap">
+            <span class="pin-kicker">Current source</span>
+            <strong id="pinSourceLabel">Original</strong>
           </div>
-          <span id="pinFooterNote" class="current-note">Timed sync đang chờ dữ liệu…</span>
-        </div>
+          <div id="pinSourceText" class="pin-text">Waiting for subtitle…</div>
+        </article>
 
-        <div class="pin-focus-grid">
-          <article id="pinSourceCard" class="pin-focus-panel">
-            <div class="pin-label-wrap">
-              <span class="pin-kicker">Current source</span>
-              <strong id="pinSourceLabel">Original</strong>
-            </div>
-            <div id="pinSourceText" class="pin-text">Waiting for subtitle…</div>
-          </article>
-
-          <article id="pinOutputCard" class="pin-focus-panel">
-            <div class="pin-label-wrap">
-              <span class="pin-kicker">Current output</span>
-              <strong id="pinOutputLabel">Translation</strong>
-            </div>
-            <div id="pinOutputText" class="pin-text dim">Chưa có dữ liệu dịch hoặc song ngữ.</div>
-          </article>
-        </div>
+        <article id="pinOutputCard" class="pin-card pin-card-output">
+          <div class="pin-label-wrap">
+            <span class="pin-kicker">Output</span>
+            <strong id="pinOutputLabel">Translation</strong>
+          </div>
+          <div id="pinOutputText" class="pin-text dim">Chưa có dữ liệu dịch hoặc song ngữ.</div>
+        </article>
       </section>
 
       <section class="pin-transcript-card">
         <div class="pin-transcript-head">
           <div>
             <span class="pin-kicker">Timeline</span>
-            <strong id="pinTranscriptTitle">Full transcript</strong>
+            <strong id="pinTranscriptTitle">Toàn bộ subtitle từ đầu đến cuối</strong>
           </div>
           <span id="pinTranscriptHint" class="transcript-hint">Bấm vào dòng bất kỳ để tua tới thời điểm đó.</span>
         </div>
@@ -114,6 +98,10 @@
           <div class="pin-empty-state">Chưa có transcript để hiển thị.</div>
         </div>
       </section>
+
+      <footer class="pin-footer">
+        <span id="pinFooterNote">Cửa sổ pin ưu tiên đồng bộ theo time, đồng thời thêm workflow học kiểu Language Reactor cho Netflix.</span>
+      </footer>
     </main>
     <script src="pinned.js"></script>
   </body>

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "YT Subtitle Grabber",
-  "version": "4.12.0",
-  "description": "Subtitle workspace with tighter pin UI, smarter YouTube time-sync, and an upgraded Netflix study flow inspired by Language Reactor.",
+  "version": "4.14.0",
+  "description": "YouTube and Netflix subtitle workspace with tighter timed sync, study controls, pin window review mode, and dual-sub support where available.",
   "minimum_chrome_version": "114",
   "permissions": [
     "activeTab",
@@ -14,12 +14,8 @@
   "host_permissions": [
     "https://www.youtube.com/*",
     "https://m.youtube.com/*",
-    "https://music.youtube.com/*",
-    "https://www.netflix.com/*"
+    "https://music.youtube.com/*"
   ],
-  "background": {
-    "service_worker": "background.js"
-  },
   "action": {
     "default_title": "YT Subtitle Grabber",
     "default_popup": "popup.html"

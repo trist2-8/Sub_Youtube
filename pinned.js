@@ -5,11 +5,10 @@ const ORIGINAL_LANGUAGE_SENTINEL = '__original__';
 const refreshBtn = document.getElementById('refreshPinnedBtn');
 const titleEl = document.getElementById('pinTitle');
 const platformChipEl = document.getElementById('pinPlatformChip');
-const modeChipEl = document.getElementById('pinModeChip');
-const syncChipEl = document.getElementById('pinSyncChip');
 const statusChipEl = document.getElementById('pinStatusChip');
 const timeChipEl = document.getElementById('pinTimeChip');
 const countChipEl = document.getElementById('pinCountChip');
+const modeChipEl = document.getElementById('pinModeChip');
 const sourceLabelEl = document.getElementById('pinSourceLabel');
 const outputLabelEl = document.getElementById('pinOutputLabel');
 const sourceTextEl = document.getElementById('pinSourceText');
@@ -20,17 +19,18 @@ const transcriptHintEl = document.getElementById('pinTranscriptHint');
 const transcriptListEl = document.getElementById('pinTranscriptList');
 const autoScrollBtn = document.getElementById('pinAutoScrollBtn');
 const autoPauseBtn = document.getElementById('pinAutoPauseBtn');
+const loopCueBtn = document.getElementById('pinLoopCueBtn');
+const revealNextBtn = document.getElementById('pinRevealNextBtn');
+const copyCurrentBtn = document.getElementById('pinCopyCurrentBtn');
+const copyTranscriptBtn = document.getElementById('pinCopyTranscriptBtn');
 const prevCueBtn = document.getElementById('pinPrevCueBtn');
 const replayCueBtn = document.getElementById('pinReplayCueBtn');
 const nextCueBtn = document.getElementById('pinNextCueBtn');
-const copyTranscriptBtn = document.getElementById('pinCopyTranscriptBtn');
-const copyCueBtn = document.getElementById('pinCopyCueBtn');
-const revealNextBtn = document.getElementById('pinRevealNextBtn');
 const playPauseBtn = document.getElementById('pinPlayPauseBtn');
 const prevPreviewTextEl = document.getElementById('pinPrevPreviewText');
+const hotkeysHintEl = document.getElementById('pinHotkeysHint');
 const nextPreviewCardEl = document.getElementById('pinNextPreviewCard');
 const nextPreviewTextEl = document.getElementById('pinNextPreviewText');
-const hotkeysHintEl = document.getElementById('pinHotkeysHint');
 const sourceCardEl = document.getElementById('pinSourceCard');
 const outputCardEl = document.getElementById('pinOutputCard');
 
@@ -41,103 +41,159 @@ const preferredModeFromUrl = params.get('mode') || '';
 const state = {
   tabId: targetTabIdFromUrl,
   lastUrl: '',
-  platform: 'default',
-  sourceKind: '',
-  pinMode: preferredModeFromUrl || 'dual',
+  platform: '',
   pinPrefs: null,
+  pinMode: preferredModeFromUrl || 'dual',
   settings: {
     preferredTargetLanguage: ORIGINAL_LANGUAGE_SENTINEL,
-    youtubeLeadMs: 180,
+    youtubeLeadMs: 220,
   },
   sourceLabel: 'Original',
   outputLabel: 'Translation',
   sourceCues: [],
   outputCues: [],
   transcriptRows: [],
-  activeIndex: -1,
-  activeTimelineIndex: -1,
-  lastRenderedActiveIndex: -1,
-  playbackBaseMs: 0,
-  playbackPerfMs: 0,
-  playbackRate: 1,
-  playbackIsPlaying: false,
-  playbackTimeMs: 0,
+  liveCaptureOnly: false,
   playbackTimer: null,
   liveTimer: null,
   refreshWatcher: null,
-  assistInFlight: false,
-  lastAssistAt: 0,
-  liveText: '',
+  playbackRate: 1,
+  playbackIsPlaying: false,
+  playbackTimeMs: 0,
+  activeIndex: -1,
+  activeTimelineIndex: -1,
+  lastRenderedActiveIndex: -2,
   autoScroll: true,
   autoPause: false,
-  nextPreviewHidden: false,
-  suppressAutoPauseOnce: true,
+  loopCue: false,
+  nextPreviewHidden: true,
+  suppressAutoPauseOnce: false,
+  liveText: '',
+  lastCaptionText: '',
+  lastLoopCueStartMs: -1,
+  lastLoopTriggerTimeMs: -1,
 };
 
 document.addEventListener('DOMContentLoaded', () => {
+  bindEvents();
   init().catch((error) => {
     console.error(error);
     setStatus(error?.message || 'Không khởi tạo được cửa sổ ghim.');
   });
 });
 
-refreshBtn?.addEventListener('click', () => {
-  loadPinnedData({ force: true }).catch((error) => setStatus(error?.message || 'Không thể làm mới.'));
-});
+window.addEventListener('beforeunload', stopAllTimers);
 
-autoScrollBtn?.addEventListener('click', () => {
-  state.autoScroll = !state.autoScroll;
-  syncButtonStates();
-  if (state.autoScroll) ensureActiveRowVisible();
-});
+function bindEvents() {
+  refreshBtn?.addEventListener('click', () => loadPinnedData({ force: true }));
 
-autoPauseBtn?.addEventListener('click', () => {
-  state.autoPause = !state.autoPause;
-  state.suppressAutoPauseOnce = true;
-  syncButtonStates();
-  setStatus(state.autoPause ? 'Auto pause đã bật.' : 'Auto pause đã tắt.');
-});
+  autoScrollBtn?.addEventListener('click', () => {
+    state.autoScroll = !state.autoScroll;
+    syncControlState();
+    if (state.autoScroll) ensureActiveRowVisible();
+  });
 
-copyTranscriptBtn?.addEventListener('click', async () => {
-  try {
+  autoPauseBtn?.addEventListener('click', () => {
+    state.autoPause = !state.autoPause;
+    syncControlState();
+    setStatus(state.autoPause ? 'Auto pause đã bật.' : 'Auto pause đã tắt.');
+  });
+
+  loopCueBtn?.addEventListener('click', () => {
+    state.loopCue = !state.loopCue;
+    state.lastLoopCueStartMs = -1;
+    state.lastLoopTriggerTimeMs = -1;
+    syncControlState();
+    setStatus(state.loopCue ? 'Loop cue đã bật.' : 'Loop cue đã tắt.');
+  });
+
+  revealNextBtn?.addEventListener('click', () => {
+    state.nextPreviewHidden = !state.nextPreviewHidden;
+    renderStudyRail();
+    setStatus(state.nextPreviewHidden ? 'Đã ẩn câu tiếp theo.' : 'Đã hiện câu tiếp theo.');
+  });
+
+  copyCurrentBtn?.addEventListener('click', async () => {
+    const current = getCurrentCueTextForCopy();
+    if (!current) {
+      setStatus('Chưa có cue hiện tại để sao chép.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(current);
+      setStatus('Đã copy cue hiện tại.');
+    } catch (error) {
+      setStatus(error?.message || 'Không copy được cue hiện tại.');
+    }
+  });
+
+  copyTranscriptBtn?.addEventListener('click', async () => {
     const text = buildTranscriptExportText();
     if (!text) {
       setStatus('Chưa có transcript để sao chép.');
       return;
     }
-    await navigator.clipboard.writeText(text);
-    setStatus('Đã copy transcript.');
-  } catch (error) {
-    setStatus(error?.message || 'Không copy được transcript.');
-  }
-});
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus('Đã copy full transcript.');
+    } catch (error) {
+      setStatus(error?.message || 'Không copy được transcript.');
+    }
+  });
 
-copyCueBtn?.addEventListener('click', () => copyCurrentCue());
-revealNextBtn?.addEventListener('click', () => toggleRevealNext());
-playPauseBtn?.addEventListener('click', () => togglePlayback());
-prevCueBtn?.addEventListener('click', () => stepCue(-1));
-replayCueBtn?.addEventListener('click', () => replayActiveCue());
-nextCueBtn?.addEventListener('click', () => stepCue(1));
+  prevCueBtn?.addEventListener('click', () => seekRelativeCue(-1));
+  replayCueBtn?.addEventListener('click', () => replayActiveCue());
+  nextCueBtn?.addEventListener('click', () => seekRelativeCue(1));
+  playPauseBtn?.addEventListener('click', () => togglePlayback());
 
-transcriptListEl?.addEventListener('click', async (event) => {
-  const row = event.target.closest('.pin-transcript-row');
-  if (!row) return;
-  const index = Number(row.dataset.index);
-  const item = state.transcriptRows[index];
-  if (!item || !Number.isFinite(item.startMs)) return;
-  await seekToMs(item.startMs, { suppressAutoPause: true, statusText: `Seek ${formatTimestamp(item.startMs)}` });
-});
+  transcriptListEl?.addEventListener('click', async (event) => {
+    const row = event.target.closest('.pin-transcript-row');
+    if (!row) return;
+    const index = Number(row.dataset.index);
+    if (!Number.isFinite(index)) return;
+    await jumpToTranscriptIndex(index, { play: false, reason: 'seek' });
+  });
 
-window.addEventListener('beforeunload', () => {
-  document.removeEventListener('keydown', handleWindowHotkeys, true);
-  stopAllTimers();
-});
+  window.addEventListener('keydown', (event) => {
+    if (event.defaultPrevented || event.repeat) return;
+    const tag = String(event.target?.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || event.metaKey || event.ctrlKey || event.altKey) return;
+
+    const key = String(event.key || '').toLowerCase();
+    if (!key) return;
+
+    if (key === 'a') {
+      event.preventDefault();
+      seekRelativeCue(-1);
+    } else if (key === 's') {
+      event.preventDefault();
+      replayActiveCue();
+    } else if (key === 'd') {
+      event.preventDefault();
+      seekRelativeCue(1);
+    } else if (key === 'q') {
+      event.preventDefault();
+      autoPauseBtn?.click();
+    } else if (key === 'w') {
+      event.preventDefault();
+      togglePlayback();
+    } else if (key === 'e') {
+      event.preventDefault();
+      revealNextBtn?.click();
+    } else if (key === 'c') {
+      event.preventDefault();
+      copyCurrentBtn?.click();
+    } else if (key === 'l') {
+      event.preventDefault();
+      loopCueBtn?.click();
+    }
+  });
+}
 
 async function init() {
   await loadSettings();
-  syncButtonStates();
+  syncControlState();
   applyPinPresentation();
-  document.addEventListener('keydown', handleWindowHotkeys, true);
   setStatus('Đang kết nối với tab video…');
   await loadPinnedData({ force: true });
   state.refreshWatcher = window.setInterval(async () => {
@@ -161,158 +217,11 @@ async function loadSettings() {
     // ignore
   }
   const lead = Number(state.settings.youtubeLeadMs);
-  state.settings.youtubeLeadMs = Number.isFinite(lead) ? lead : 180;
-}
-
-function syncButtonStates() {
-  if (autoScrollBtn) {
-    autoScrollBtn.classList.toggle('is-active', state.autoScroll);
-    autoScrollBtn.textContent = state.autoScroll ? 'Auto scroll' : 'Manual scroll';
-  }
-  if (autoPauseBtn) {
-    autoPauseBtn.classList.toggle('is-active', state.autoPause);
-    autoPauseBtn.textContent = state.autoPause ? 'Auto pause on' : 'Auto pause off';
-  }
-  if (revealNextBtn) {
-    revealNextBtn.classList.toggle('is-active', !state.nextPreviewHidden);
-    revealNextBtn.textContent = state.nextPreviewHidden ? 'Reveal next' : 'Hide next';
-  }
-  if (playPauseBtn) {
-    playPauseBtn.classList.toggle('is-active', state.playbackIsPlaying);
-    playPauseBtn.textContent = state.playbackIsPlaying ? 'Pause' : 'Play';
-  }
-  document.body.classList.toggle('reveal-next', !state.nextPreviewHidden);
-}
-
-
-function handleWindowHotkeys(event) {
-  const target = event.target;
-  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
-  if (event.altKey || event.ctrlKey || event.metaKey) return;
-
-  const key = String(event.key || '').toLowerCase();
-  if (!key) return;
-
-  if (key === 'a') {
-    event.preventDefault();
-    stepCue(-1);
-    return;
-  }
-  if (key === 's') {
-    event.preventDefault();
-    replayActiveCue();
-    return;
-  }
-  if (key === 'd') {
-    event.preventDefault();
-    stepCue(1);
-    return;
-  }
-  if (key === 'q') {
-    event.preventDefault();
-    autoPauseBtn?.click();
-    return;
-  }
-  if (key === 'w' || event.key === ' ') {
-    event.preventDefault();
-    togglePlayback();
-    return;
-  }
-  if (key === 'e') {
-    event.preventDefault();
-    toggleRevealNext();
-    return;
-  }
-  if (key === 'c') {
-    event.preventDefault();
-    copyCurrentCue();
-  }
-}
-
-function getActiveRowsForPreview() {
-  const rows = state.transcriptRows || [];
-  if (!rows.length) return { prev: null, current: null, next: null };
-
-  let index = state.activeTimelineIndex;
-  if (index < 0 && Number.isInteger(state.activeIndex)) index = state.activeIndex;
-  if (index < 0 && rows.length) index = 0;
-  index = Math.max(0, Math.min(rows.length - 1, index));
-
-  return {
-    prev: rows[index - 1] || null,
-    current: rows[index] || null,
-    next: rows[index + 1] || null,
-  };
-}
-
-function updateStudyRail() {
-  const preview = getActiveRowsForPreview();
-  const prevText = preview.prev?.source || '—';
-  const nextText = preview.next?.source || 'Chưa có câu tiếp theo.';
-
-  if (prevPreviewTextEl) prevPreviewTextEl.textContent = prevText;
-  if (nextPreviewTextEl) nextPreviewTextEl.textContent = nextText;
-  if (nextPreviewCardEl) {
-    const shouldBlur = Boolean(preview.next?.source) && state.nextPreviewHidden;
-    nextPreviewCardEl.classList.toggle('is-blurred', shouldBlur);
-    nextPreviewCardEl.classList.toggle('is-revealed', Boolean(preview.next?.source) && !state.nextPreviewHidden);
-  }
-  if (hotkeysHintEl) {
-    hotkeysHintEl.textContent = state.platform === 'netflix'
-      ? 'A prev · S replay · D next · Q auto pause · W play/pause · E reveal next · C copy cue'
-      : 'YouTube sync dùng currentTime + live caption assist. A/S/D để duyệt cue, W play/pause, C copy cue.';
-  }
-  syncButtonStates();
-}
-
-function toggleRevealNext(forceValue) {
-  const preview = getActiveRowsForPreview();
-  if (!preview.next?.source) {
-    setStatus('Chưa có câu tiếp theo để hiển thị.');
-    return;
-  }
-  const reveal = typeof forceValue === 'boolean' ? forceValue : state.nextPreviewHidden;
-  state.nextPreviewHidden = !reveal;
-  updateStudyRail();
-  setStatus(state.nextPreviewHidden ? 'Đã ẩn câu tiếp theo.' : 'Đã hiện câu tiếp theo.');
-}
-
-async function copyCurrentCue() {
-  const preview = getActiveRowsForPreview();
-  const current = preview.current;
-  if (!current?.source) {
-    setStatus('Chưa có câu hiện tại để copy.');
-    return;
-  }
-  try {
-    const text = `${current.source}${current.output ? `
-${current.output}` : ''}`;
-    await navigator.clipboard.writeText(text);
-    setStatus('Đã copy câu hiện tại.');
-  } catch (error) {
-    setStatus(error?.message || 'Không copy được câu hiện tại.');
-  }
-}
-
-async function togglePlayback() {
-  try {
-    const result = await executeInPage(pageTogglePlaybackPinned, []);
-    if (!result?.ok) {
-      setStatus(result?.error || 'Không đổi được trạng thái phát.');
-      return;
-    }
-    state.playbackIsPlaying = Boolean(result.isPlaying);
-    state.playbackBaseMs = Math.max(0, Number(result.currentTimeMs) || state.playbackBaseMs || 0);
-    state.playbackPerfMs = performance.now();
-    syncButtonStates();
-    setStatus(state.playbackIsPlaying ? 'Playing' : 'Paused');
-  } catch (error) {
-    setStatus(error?.message || 'Không đổi được trạng thái phát.');
-  }
+  state.settings.youtubeLeadMs = Number.isFinite(lead) ? lead : 220;
 }
 
 function getResolvedPinMode(platform = state.platform || 'default') {
-  if (preferredModeFromUrl) return preferredModeFromUrl;
+  if (['compact', 'dual', 'review'].includes(preferredModeFromUrl)) return preferredModeFromUrl;
   const source = state.pinPrefs && typeof state.pinPrefs === 'object' ? state.pinPrefs : {};
   const scoped = source[platform] && typeof source[platform] === 'object' ? source[platform] : source.default;
   const mode = scoped?.mode;
@@ -339,7 +248,36 @@ function applyPinPresentation() {
 
   if (modeChipEl) modeChipEl.textContent = state.pinMode.charAt(0).toUpperCase() + state.pinMode.slice(1);
   sourceCardEl?.classList.toggle('is-hidden', false);
-  outputCardEl?.classList.toggle('is-hidden', !hasOutput);
+  outputCardEl?.classList.toggle('is-hidden', !hasOutput && state.pinMode === 'compact');
+}
+
+function syncControlState() {
+  autoScrollBtn?.classList.toggle('is-active', state.autoScroll);
+  autoScrollBtn && (autoScrollBtn.textContent = state.autoScroll ? 'Auto' : 'Manual');
+
+  autoPauseBtn?.classList.toggle('is-active', state.autoPause);
+  autoPauseBtn && (autoPauseBtn.textContent = state.autoPause ? 'Auto pause on' : 'Auto pause');
+
+  loopCueBtn?.classList.toggle('is-active', state.loopCue);
+  loopCueBtn && (loopCueBtn.textContent = state.loopCue ? 'Loop cue on' : 'Loop cue');
+
+  revealNextBtn?.classList.toggle('is-active', !state.nextPreviewHidden);
+}
+
+function renderStudyRail() {
+  const currentIndex = state.activeIndex >= 0 ? state.activeIndex : state.activeTimelineIndex;
+  const previousRow = currentIndex > 0 ? state.transcriptRows[currentIndex - 1] : null;
+  const nextRow = currentIndex >= 0 ? state.transcriptRows[currentIndex + 1] : state.transcriptRows[0] || null;
+
+  prevPreviewTextEl.textContent = previousRow?.source || '—';
+
+  const nextText = nextRow?.source || 'Next subtitle hidden';
+  nextPreviewTextEl.textContent = state.nextPreviewHidden && nextRow ? nextText : nextText || '—';
+  nextPreviewCardEl?.classList.toggle('is-blurred', Boolean(state.nextPreviewHidden && nextRow));
+
+  hotkeysHintEl.textContent = state.platform === 'netflix'
+    ? 'A prev · S replay · D next · Q auto pause · W play/pause · E reveal next · C copy cue · L loop cue'
+    : 'YouTube sync theo time + caption overlay · A/S/D để lùi, replay, tiến · Q/W/E/C/L cho study mode';
 }
 
 async function getTargetTab() {
@@ -388,86 +326,76 @@ async function executeInPage(func, args = []) {
 async function loadPinnedData({ force = false } = {}) {
   stopPlaybackTimer();
   stopLiveCapture();
-  resetRuntimeState();
+  state.sourceCues = [];
+  state.outputCues = [];
+  state.transcriptRows = [];
+  state.liveCaptureOnly = false;
+  state.activeIndex = -1;
+  state.activeTimelineIndex = -1;
+  state.lastRenderedActiveIndex = -2;
+  state.playbackTimeMs = 0;
+  state.playbackIsPlaying = false;
+  state.lastCaptionText = '';
+  state.liveText = '';
+  state.nextPreviewHidden = true;
+  syncControlState();
 
   const tab = await getTargetTab();
   if (!tab?.url) {
-    setEmptyPinnedState('Không tìm thấy tab video.', 'Waiting for subtitle…', '');
+    setEmptyPinnedState('Không tìm thấy tab video.', 'Waiting for subtitle…', 'Chưa có dữ liệu dịch hoặc song ngữ.');
     return;
   }
 
   state.lastUrl = tab.url;
   state.platform = detectPlatform(tab.url) || 'default';
-  titleEl.textContent = tab.title || 'Video';
+  state.pinMode = getResolvedPinMode(state.platform);
+
   platformChipEl.textContent = state.platform ? state.platform.toUpperCase() : 'UNSUPPORTED';
-  applyPinPresentation();
+  titleEl.textContent = tab.title || 'Video';
 
   if (state.platform === 'youtube') {
-    await loadYoutubePinned({ force });
+    await loadYoutubePinned(force);
     return;
   }
-
   if (state.platform === 'netflix') {
-    await loadNetflixPinned({ force });
+    await loadNetflixPinned(force);
     return;
   }
 
   setEmptyPinnedState(
     'Tab hiện tại không phải YouTube hoặc Netflix.',
-    'Mở video YouTube hoặc Netflix rồi ghim lại.',
-    ''
+    'Waiting for subtitle…',
+    'Mở video YouTube hoặc Netflix rồi bấm pin từ popup chính.'
   );
 }
 
-function resetRuntimeState() {
-  state.sourceKind = '';
-  state.sourceCues = [];
-  state.outputCues = [];
-  state.transcriptRows = [];
-  state.activeIndex = -1;
-  state.activeTimelineIndex = -1;
-  state.lastRenderedActiveIndex = -1;
-  state.playbackBaseMs = 0;
-  state.playbackPerfMs = 0;
-  state.playbackRate = 1;
-  state.playbackIsPlaying = false;
-  state.playbackTimeMs = 0;
-  state.lastAssistAt = 0;
-  state.liveText = '';
-  state.nextPreviewHidden = state.platform === 'netflix';
-  state.suppressAutoPauseOnce = true;
-  timeChipEl.textContent = '00:00:00,000';
-  countChipEl.textContent = '0 dòng';
-  syncChipEl.textContent = 'Sync';
-}
-
-async function loadYoutubePinned() {
-  state.platform = 'youtube';
+async function loadYoutubePinned(force) {
   const metadata = await executeInPage(pageGetYoutubeMetadataPinned, []);
   if (!metadata?.ok || !Array.isArray(metadata.sourceTracks) || !metadata.sourceTracks.length) {
-    setEmptyPinnedState(metadata?.error || 'Không đọc được phụ đề YouTube.', 'Waiting for subtitle…', '');
-    syncChipEl.textContent = 'No track';
+    setEmptyPinnedState(
+      metadata?.error || 'Không đọc được phụ đề YouTube.',
+      'Waiting for subtitle…',
+      'Video YouTube này chưa có phụ đề hoặc chưa đọc được track.'
+    );
     return;
   }
 
-  const sourceIndex = Math.max(0, Math.min(Number(metadata.defaultSourceIndex) || 0, metadata.sourceTracks.length - 1));
-  const sourceTrack = metadata.sourceTracks[sourceIndex];
+  const sourceTrack = metadata.sourceTracks[Math.max(0, Number(metadata.defaultSourceIndex) || 0)] || metadata.sourceTracks[0];
   state.sourceLabel = sourceTrack.name || sourceTrack.languageCode || 'Original';
   state.outputLabel = 'Output';
-  state.sourceKind = 'youtube-timedtext';
-  state.nextPreviewHidden = false;
-
   sourceLabelEl.textContent = state.sourceLabel;
   outputLabelEl.textContent = state.outputLabel;
-  transcriptTitleEl.textContent = 'YouTube timed transcript';
-  transcriptHintEl.textContent = 'Đồng bộ theo currentTime, có thêm live caption assist để giữ active cue khớp với player.';
-  footerNoteEl.textContent = 'YouTube dùng timed transcript đầy đủ. Khi caption overlay đang hiện, pin sẽ dùng thêm overlay để khóa đúng câu đang phát.';
-  syncChipEl.textContent = 'Timed + live assist';
+  transcriptTitleEl.textContent = 'YouTube full transcript';
+  transcriptHintEl.textContent = 'Đồng bộ theo currentTime, có thêm caption overlay assist để bám đúng câu đang hiển thị.';
+  footerNoteEl.textContent = 'YouTube pin ưu tiên full timed transcript, vẫn bám cue theo thời gian thực và tự hiệu chỉnh bằng caption overlay nếu player đang hiện sub.';
 
   const sourceResult = await executeInPage(pageFetchYoutubeTrackPinned, [sourceTrack]);
   if (!sourceResult?.ok || !Array.isArray(sourceResult.cues) || !sourceResult.cues.length) {
-    setEmptyPinnedState(sourceResult?.error || 'Không tải được timed transcript YouTube.', 'Waiting for subtitle…', '');
-    syncChipEl.textContent = 'Timed fetch failed';
+    setEmptyPinnedState(
+      sourceResult?.error || 'Không tải được phụ đề YouTube.',
+      'Waiting for subtitle…',
+      'Không tải được nội dung phụ đề YouTube.'
+    );
     return;
   }
 
@@ -476,8 +404,11 @@ async function loadYoutubePinned() {
 
   const targetLanguage = state.settings.preferredTargetLanguage || ORIGINAL_LANGUAGE_SENTINEL;
   if (targetLanguage !== ORIGINAL_LANGUAGE_SENTINEL && sourceTrack.isTranslatable) {
-    const targetMeta = (metadata.translationLanguages || []).find((item) => item.languageCode === targetLanguage);
-    const translatedTrack = {
+    const targetMeta = Array.isArray(metadata.translationLanguages)
+      ? metadata.translationLanguages.find((item) => item.languageCode === targetLanguage)
+      : null;
+
+    const translationRequest = {
       ...sourceTrack,
       isTranslation: true,
       sourceLanguageCode: sourceTrack.languageCode,
@@ -485,7 +416,7 @@ async function loadYoutubePinned() {
       targetLanguageName: targetMeta?.name || targetLanguage,
     };
 
-    const translationResult = await executeInPage(pageFetchYoutubeTrackPinned, [translatedTrack]);
+    const translationResult = await executeInPage(pageFetchYoutubeTrackPinned, [translationRequest]);
     if (translationResult?.ok && Array.isArray(translationResult.cues) && translationResult.cues.length) {
       state.outputCues = sanitizeCues(translationResult.cues);
       state.outputLabel = targetMeta?.name || targetLanguage;
@@ -494,55 +425,91 @@ async function loadYoutubePinned() {
   }
 
   rebuildTranscriptRowsFromCues();
-  renderTexts('Waiting for subtitle…', state.outputCues.length ? 'Đang chờ câu dịch tương ứng…' : '');
-  setStatus('Timed sync ready');
-  startPlaybackTimer();
+  setStatus('Live sync');
+  await startPlaybackTimer();
 }
 
-async function loadNetflixPinned() {
-  state.platform = 'netflix';
+async function loadNetflixPinned(force) {
   const metadata = await executeInPage(pageGetNetflixMetadataPinned, []);
   if (!metadata?.ok || !Array.isArray(metadata.sourceTracks) || !metadata.sourceTracks.length) {
-    setEmptyPinnedState(metadata?.error || 'Không đọc được metadata Netflix.', 'Waiting for subtitle…', '');
-    syncChipEl.textContent = 'No track';
+    setEmptyPinnedState(
+      metadata?.error || 'Không đọc được metadata Netflix.',
+      'Waiting for subtitle…',
+      'Netflix chưa expose subtitle track nào. Hãy bật phụ đề trong player rồi refresh.'
+    );
     return;
   }
 
-  const sourceIndex = Math.max(0, Math.min(Number(metadata.defaultSourceIndex) || 0, metadata.sourceTracks.length - 1));
-  const sourceTrack = metadata.sourceTracks[sourceIndex];
+  const tracks = metadata.sourceTracks.filter((track) => track.fetchStrategy === 'textTrack');
+  const liveCaptureTrack = metadata.sourceTracks.find((track) => track.fetchStrategy === 'liveCapture') || null;
+  const sourceTrack = metadata.sourceTracks[Math.max(0, Number(metadata.defaultSourceIndex) || 0)] || metadata.sourceTracks[0];
+
   state.sourceLabel = sourceTrack.name || sourceTrack.languageCode || 'Original';
-  state.outputLabel = 'Study notes';
+  state.outputLabel = 'Study note';
   sourceLabelEl.textContent = state.sourceLabel;
   outputLabelEl.textContent = state.outputLabel;
+  transcriptTitleEl.textContent = 'Netflix study timeline';
+  transcriptHintEl.textContent = 'Prev / Replay / Next + auto pause / reveal next theo workflow kiểu Language Reactor, nhưng gọn hơn và ưu tiên sync theo time.';
+  footerNoteEl.textContent = 'Netflix pin ưu tiên full textTrack; nếu không đọc được full cue sẽ rơi về live capture timeline. Có hỗ trợ prev, replay, next, auto pause, reveal next và loop cue.';
 
-  transcriptTitleEl.textContent = 'Netflix subtitle timeline';
-  transcriptHintEl.textContent = 'Ưu tiên full textTrack. Nếu Netflix không expose full cues, pin sẽ chuyển sang live capture liên tục như session log.';
-  footerNoteEl.textContent = 'Lấy cảm hứng từ workflow kiểu Language Reactor: theo câu, nhảy prev/replay/next cue, auto pause, preview câu kế tiếp, và timeline sống để review lại.';
-  state.nextPreviewHidden = true;
+  let sourceResult = null;
+  if (sourceTrack.fetchStrategy === 'textTrack') {
+    sourceResult = await executeInPage(pageFetchNetflixTrackPinned, [sourceTrack]);
+  }
 
-  const sourceResult = await executeInPage(pageFetchNetflixTrackPinned, [sourceTrack]);
   if (sourceResult?.ok && Array.isArray(sourceResult.cues) && sourceResult.cues.length) {
-    state.sourceKind = 'netflix-texttrack';
     state.sourceCues = sanitizeCues(sourceResult.cues);
     state.outputCues = [];
-    syncChipEl.textContent = 'TextTrack';
-    footerNoteEl.textContent = 'Netflix đang dùng full textTrack từ player. Prev / Replay / Next, auto pause, và preview câu kế tiếp sẽ bám theo từng cue.';
+
+    const preferredTargetLanguage = state.settings.preferredTargetLanguage || ORIGINAL_LANGUAGE_SENTINEL;
+    let secondaryTrack = null;
+    if (preferredTargetLanguage !== ORIGINAL_LANGUAGE_SENTINEL) {
+      secondaryTrack = tracks.find(
+        (track) => track.languageCode === preferredTargetLanguage && track.languageCode !== sourceTrack.languageCode
+      ) || null;
+    }
+    if (!secondaryTrack) {
+      secondaryTrack = tracks.find((track) => track.languageCode !== sourceTrack.languageCode) || null;
+    }
+
+    if (secondaryTrack) {
+      const secondaryResult = await executeInPage(pageFetchNetflixTrackPinned, [secondaryTrack]);
+      if (secondaryResult?.ok && Array.isArray(secondaryResult.cues) && secondaryResult.cues.length) {
+        state.outputCues = sanitizeCues(secondaryResult.cues);
+        state.outputLabel = secondaryTrack.name || secondaryTrack.languageCode || 'Secondary';
+        outputLabelEl.textContent = state.outputLabel;
+        footerNoteEl.textContent = 'Netflix pin đang chạy dual-sub thật sự từ textTrack khi title cho phép. Câu active vẫn bám currentTime, còn câu kế tiếp có thể ẩn/hiện để luyện nghe.';
+      }
+    }
+
     rebuildTranscriptRowsFromCues();
-    renderTexts('Waiting for subtitle…', '');
-    setStatus('TextTrack sync ready');
-    startPlaybackTimer();
+    setStatus(state.outputCues.length ? 'Dual study' : 'Study sync');
+    await startPlaybackTimer();
     return;
   }
 
-  state.sourceKind = 'netflix-live';
-  syncChipEl.textContent = 'Live capture';
-  transcriptTitleEl.textContent = 'Netflix live timeline';
-  transcriptHintEl.textContent = 'Khi player không lộ toàn bộ textTrack, pin sẽ lưu toàn bộ subtitle đang hiện trong phiên xem hiện tại.';
-  footerNoteEl.textContent = 'Live capture giúp Netflix vẫn usable ngay cả khi full track không đọc được. Timeline sẽ tích lũy dần giống một session reviewer và vẫn dùng được A/S/D/Q/W/E.';
-  renderTexts('Waiting for subtitle…', '');
+  state.liveCaptureOnly = true;
+  state.outputCues = [];
+  state.transcriptRows = [];
   renderTranscriptList();
+  applyPinPresentation();
+  renderTexts('Waiting for subtitle…', 'Đang chuyển sang live capture subtitle đang hiển thị.');
   setStatus('Live capture');
-  startLiveCapture();
+  transcriptTitleEl.textContent = 'Netflix live capture timeline';
+  transcriptHintEl.textContent = 'Nếu Netflix không expose full textTrack, pin sẽ tích lũy subtitle đang hiện trên player theo thời gian thực.';
+  footerNoteEl.textContent = 'Netflix live capture giữ toàn bộ subtitle đã hiện từ lúc pin chạy. Bạn vẫn có prev / replay / next trên timeline đã tích lũy.';
+  await startLiveCapture();
+}
+
+function sanitizeCues(cues) {
+  return (Array.isArray(cues) ? cues : [])
+    .map((cue) => ({
+      startMs: Math.max(0, Math.round(Number(cue.startMs) || 0)),
+      endMs: Math.max(Math.round(Number(cue.endMs) || 0), Math.round(Number(cue.startMs) || 0) + 600),
+      text: normalizeCueText(cue.text || ''),
+    }))
+    .filter((cue) => cue.text)
+    .sort((a, b) => a.startMs - b.startMs);
 }
 
 function rebuildTranscriptRowsFromCues() {
@@ -557,31 +524,28 @@ function rebuildTranscriptRowsFromCues() {
     };
   });
   renderTranscriptList();
-  updateTextsFromCues();
-  updateStudyRail();
+  updateTextsFromState();
 }
 
 function renderTranscriptList() {
-  const rows = state.transcriptRows || [];
-  const hasOutput = rows.some((row) => row.output);
-  countChipEl.textContent = `${rows.length} dòng`;
-  applyPinPresentation();
-
+  countChipEl.textContent = `${state.transcriptRows.length} dòng`;
   if (!transcriptListEl) return;
+
   transcriptListEl.innerHTML = '';
-  if (!rows.length) {
+  if (!state.transcriptRows.length) {
     const empty = document.createElement('div');
     empty.className = 'pin-empty-state';
     empty.textContent = 'Chưa có transcript để hiển thị.';
     transcriptListEl.appendChild(empty);
+    renderStudyRail();
     return;
   }
 
   const fragment = document.createDocumentFragment();
-  rows.forEach((row, index) => {
+  state.transcriptRows.forEach((row, index) => {
     const item = document.createElement('button');
     item.type = 'button';
-    item.className = `pin-transcript-row${hasOutput ? '' : ' no-output'}`;
+    item.className = 'pin-transcript-row';
     if (index === state.activeTimelineIndex) item.classList.add('is-active');
     item.dataset.index = String(index);
     item.innerHTML = `
@@ -590,32 +554,30 @@ function renderTranscriptList() {
         <strong>${escapeHtml(state.sourceLabel || 'Source')}</strong>
         <p>${escapeHtml(row.source || '')}</p>
       </div>
-      ${hasOutput ? `
       <div class="pin-transcript-col output">
         <strong>${escapeHtml(state.outputLabel || 'Output')}</strong>
         <p>${escapeHtml(row.output || '—')}</p>
-      </div>` : ''}
+      </div>
     `;
     fragment.appendChild(item);
   });
   transcriptListEl.appendChild(fragment);
-  ensureActiveRowVisible();
+  updateActiveTranscriptRow();
+  applyPinPresentation();
+  renderStudyRail();
 }
 
 function updateActiveTranscriptRow() {
   if (!transcriptListEl) return;
   if (state.lastRenderedActiveIndex === state.activeTimelineIndex) return;
 
-  const previous = transcriptListEl.querySelector('.pin-transcript-row.is-active');
-  previous?.classList.remove('is-active');
-
+  transcriptListEl.querySelector('.pin-transcript-row.is-active')?.classList.remove('is-active');
   if (state.activeTimelineIndex >= 0) {
-    const current = transcriptListEl.querySelector(`.pin-transcript-row[data-index="${state.activeTimelineIndex}"]`);
-    current?.classList.add('is-active');
+    transcriptListEl.querySelector(`.pin-transcript-row[data-index="${state.activeTimelineIndex}"]`)?.classList.add('is-active');
   }
-
   state.lastRenderedActiveIndex = state.activeTimelineIndex;
   ensureActiveRowVisible();
+  renderStudyRail();
 }
 
 function ensureActiveRowVisible() {
@@ -624,34 +586,35 @@ function ensureActiveRowVisible() {
   current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
-function renderTexts(sourceText, outputText) {
-  const hasOutput = Boolean(
-    outputText &&
-    String(outputText).trim() &&
-    !/^—$/.test(String(outputText).trim())
-  );
+function appendLiveTranscriptRow(text, timeMs) {
+  const normalized = normalizeCueText(text || '');
+  if (!normalized) return;
 
-  sourceTextEl.textContent = sourceText || 'Waiting for subtitle…';
-  outputTextEl.textContent = outputText || 'Chưa có dữ liệu song ngữ.';
+  const previous = state.transcriptRows[state.transcriptRows.length - 1] || null;
+  if (previous && normalizeCompareText(previous.source) === normalizeCompareText(normalized)) {
+    previous.endMs = Math.max(previous.endMs || previous.startMs || 0, timeMs);
+    state.activeTimelineIndex = state.transcriptRows.length - 1;
+    updateActiveTranscriptRow();
+    return;
+  }
 
-  const layoutHasOutput = hasOutput || state.outputCues.length > 0 || state.transcriptRows.some((row) => row.output);
-  document.body.classList.toggle('has-output', layoutHasOutput);
-  document.body.classList.toggle('no-output', !layoutHasOutput);
-  updateStudyRail();
-}
-
-function setStatus(text) {
-  statusChipEl.textContent = text || 'Ready';
+  state.transcriptRows.push({
+    startMs: Math.max(0, Number(timeMs) || 0),
+    endMs: Math.max(0, Number(timeMs) || 0),
+    source: normalized,
+    output: '',
+    kind: 'live',
+  });
+  state.activeTimelineIndex = state.transcriptRows.length - 1;
+  renderTranscriptList();
 }
 
 function setEmptyPinnedState(statusText, sourceText, outputText) {
+  setStatus(statusText);
+  state.transcriptRows = [];
   state.sourceCues = [];
   state.outputCues = [];
-  state.transcriptRows = [];
-  state.activeIndex = -1;
-  state.activeTimelineIndex = -1;
   renderTexts(sourceText, outputText);
-  setStatus(statusText);
   renderTranscriptList();
   applyPinPresentation();
 }
@@ -670,7 +633,6 @@ function stopPlaybackTimer() {
     clearInterval(state.playbackTimer);
     state.playbackTimer = null;
   }
-  state.assistInFlight = false;
 }
 
 function stopLiveCapture() {
@@ -678,60 +640,165 @@ function stopLiveCapture() {
     clearInterval(state.liveTimer);
     state.liveTimer = null;
   }
-  state.liveText = '';
 }
 
-function startPlaybackTimer() {
+async function startPlaybackTimer() {
   stopPlaybackTimer();
-  state.playbackTimer = window.setInterval(async () => {
-    try {
-      const snapshot = await executeInPage(pageGetPlaybackSnapshotPinned, []);
-      if (!snapshot?.ok) return;
-      state.playbackBaseMs = Math.max(0, Number(snapshot.currentTimeMs) || 0);
-      state.playbackPerfMs = performance.now();
-      state.playbackRate = Number(snapshot.playbackRate || 1) || 1;
-      state.playbackIsPlaying = Boolean(snapshot.isPlaying);
-      syncPlayback();
-
-      if (
-        state.platform === 'youtube' &&
-        !state.assistInFlight &&
-        Date.now() - state.lastAssistAt > 420
-      ) {
-        state.assistInFlight = true;
-        state.lastAssistAt = Date.now();
-        executeInPage(pageGetYoutubeCaptionSnapshotPinned, [])
-          .then((assist) => applyYoutubeAssistSnapshot(assist))
-          .catch(() => {})
-          .finally(() => {
-            state.assistInFlight = false;
-          });
-      }
-    } catch {
-      // ignore
-    }
+  await refreshPlaybackState();
+  state.playbackTimer = window.setInterval(() => {
+    refreshPlaybackState().catch(() => {
+      // ignore transient failures
+    });
   }, 220);
 }
 
-function estimatePlaybackTime() {
-  const delta = state.playbackIsPlaying
-    ? Math.max(0, performance.now() - state.playbackPerfMs) * state.playbackRate
-    : 0;
+async function refreshPlaybackState() {
+  const snapshot = await executeInPage(pageGetPlaybackSnapshotPinned, []);
+  if (!snapshot?.ok) return;
+
+  state.playbackRate = Number(snapshot.playbackRate || 1) || 1;
+  state.playbackIsPlaying = Boolean(snapshot.isPlaying);
+  state.playbackTimeMs = Math.max(0, Number(snapshot.currentTimeMs) || 0);
+  state.lastCaptionText = normalizeCueText(snapshot.captionText || '');
+
   const leadMs = state.platform === 'youtube' ? Number(state.settings.youtubeLeadMs || 0) : 0;
-  return Math.max(0, Math.round(state.playbackBaseMs + delta + leadMs));
+  const timeForMatch = state.playbackTimeMs + leadMs;
+  const previousIndex = state.activeIndex;
+  const indexByTime = findCueIndex(state.sourceCues, timeForMatch, previousIndex);
+  const overlayIndex = state.lastCaptionText ? findCueIndexByOverlay(state.sourceCues, state.lastCaptionText, timeForMatch, indexByTime) : -1;
+  const resolvedIndex = overlayIndex >= 0 ? overlayIndex : indexByTime;
+
+  if (resolvedIndex !== state.activeIndex) {
+    const hadPrevious = state.activeIndex >= 0;
+    state.activeIndex = resolvedIndex;
+    state.activeTimelineIndex = resolvedIndex;
+    updateTextsFromState();
+    updateActiveTranscriptRow();
+
+    if (state.platform === 'netflix') {
+      state.nextPreviewHidden = true;
+      syncControlState();
+      renderStudyRail();
+    }
+
+    if (
+      state.autoPause &&
+      state.playbackIsPlaying &&
+      hadPrevious &&
+      resolvedIndex >= 0 &&
+      !state.suppressAutoPauseOnce
+    ) {
+      await executeInPage(pagePlaybackCommandPinned, [{ action: 'pause' }]);
+      state.playbackIsPlaying = false;
+      setStatus('Auto paused');
+    }
+  }
+
+  if (state.suppressAutoPauseOnce && !state.playbackIsPlaying) {
+    state.suppressAutoPauseOnce = false;
+  }
+
+  if (state.loopCue && state.activeIndex >= 0 && state.playbackIsPlaying) {
+    const activeCue = state.sourceCues[state.activeIndex];
+    if (activeCue) {
+      if (state.playbackTimeMs <= activeCue.startMs + 180) {
+        state.lastLoopCueStartMs = -1;
+      }
+      if (
+        state.playbackTimeMs >= activeCue.endMs - 30 &&
+        state.lastLoopCueStartMs !== activeCue.startMs &&
+        state.lastLoopTriggerTimeMs !== activeCue.startMs
+      ) {
+        state.lastLoopCueStartMs = activeCue.startMs;
+        state.lastLoopTriggerTimeMs = activeCue.startMs;
+        state.suppressAutoPauseOnce = true;
+        await executeInPage(pagePlaybackCommandPinned, [{ action: 'seek', timeMs: activeCue.startMs, play: true }]);
+        setStatus('Loop cue');
+        return;
+      }
+    }
+  }
+
+  timeChipEl.textContent = formatTimestamp(state.playbackTimeMs);
+  if (state.platform === 'youtube') {
+    setStatus(snapshot.captionText ? 'Live sync + overlay' : 'Live sync');
+  } else if (!state.autoPause || state.playbackIsPlaying) {
+    setStatus(state.playbackIsPlaying ? 'Playing' : 'Paused');
+  }
+}
+
+async function startLiveCapture() {
+  stopLiveCapture();
+  await refreshLiveCaptureState();
+  state.liveTimer = window.setInterval(() => {
+    refreshLiveCaptureState().catch(() => {
+      // ignore transient failures
+    });
+  }, 180);
+}
+
+async function refreshLiveCaptureState() {
+  const snapshot = await executeInPage(pageGetPlaybackSnapshotPinned, []);
+  if (!snapshot?.ok) return;
+
+  const timeMs = Math.max(0, Number(snapshot.currentTimeMs) || 0);
+  const liveText = normalizeCueText(snapshot.captionText || '');
+  state.playbackTimeMs = timeMs;
+  state.playbackIsPlaying = Boolean(snapshot.isPlaying);
+  timeChipEl.textContent = formatTimestamp(timeMs);
+
+  if (!liveText) {
+    setStatus('Waiting');
+    return;
+  }
+
+  if (normalizeCompareText(liveText) !== normalizeCompareText(state.liveText)) {
+    state.liveText = liveText;
+    renderTexts(liveText, 'Netflix live capture đang được lưu theo thời gian.');
+    appendLiveTranscriptRow(liveText, timeMs);
+    setStatus('Live capture');
+  }
+}
+
+function updateTextsFromState() {
+  if (state.activeIndex < 0 || !state.sourceCues[state.activeIndex]) {
+    renderTexts(
+      'Waiting for subtitle…',
+      state.outputCues.length ? 'Đang chờ câu song ngữ kế tiếp…' : 'Chưa có dữ liệu dịch hoặc song ngữ.'
+    );
+    renderStudyRail();
+    return;
+  }
+
+  const sourceCue = state.sourceCues[state.activeIndex];
+  let outputText = 'Chưa có dữ liệu dịch hoặc song ngữ.';
+  if (state.outputCues.length) {
+    const outputCue = findBestOutputCue(sourceCue, state.outputCues, state.activeIndex);
+    if (outputCue?.text) outputText = outputCue.text;
+  } else if (state.platform === 'netflix') {
+    outputText = state.liveCaptureOnly
+      ? 'Netflix live capture đang tích lũy từng subtitle theo phiên hiện tại.'
+      : 'Netflix study mode đang bật. Dùng Reveal next hoặc Auto pause để học theo từng câu.';
+  }
+
+  renderTexts(sourceCue.text || 'Waiting for subtitle…', outputText);
+  renderStudyRail();
+}
+
+function renderTexts(sourceText, outputText) {
+  sourceTextEl.textContent = sourceText || 'Waiting for subtitle…';
+  outputTextEl.textContent = outputText || 'Chưa có dữ liệu dịch hoặc song ngữ.';
 }
 
 function findCueIndex(cues, timeMs, activeIndex) {
-  if (!cues.length) return -1;
+  if (!Array.isArray(cues) || !cues.length) return -1;
 
   const activeCue = cues[activeIndex];
-  if (activeCue && timeMs >= activeCue.startMs - 50 && timeMs < activeCue.endMs + 120) {
-    return activeIndex;
-  }
+  if (activeCue && timeMs >= activeCue.startMs - 80 && timeMs < activeCue.endMs + 140) return activeIndex;
 
-  for (let idx = Math.max(0, activeIndex - 3); idx <= Math.min(cues.length - 1, activeIndex + 3); idx += 1) {
+  for (let idx = Math.max(0, activeIndex - 2); idx <= Math.min(cues.length - 1, activeIndex + 2); idx += 1) {
     const cue = cues[idx];
-    if (cue && timeMs >= cue.startMs - 50 && timeMs < cue.endMs + 120) return idx;
+    if (cue && timeMs >= cue.startMs - 70 && timeMs < cue.endMs + 120) return idx;
   }
 
   let low = 0;
@@ -745,118 +812,58 @@ function findCueIndex(cues, timeMs, activeIndex) {
   }
 
   const candidate = Math.max(0, Math.min(cues.length - 1, low));
-  if (Math.abs((cues[candidate]?.startMs || 0) - timeMs) <= 500) return candidate;
+  if (Math.abs((cues[candidate]?.startMs || 0) - timeMs) <= 460) return candidate;
+  const previous = Math.max(0, candidate - 1);
+  if (Math.abs((cues[previous]?.endMs || 0) - timeMs) <= 420) return previous;
   return -1;
 }
 
-function syncPlayback() {
-  if (!state.sourceCues.length) return;
-  state.playbackTimeMs = estimatePlaybackTime();
-  timeChipEl.textContent = formatTimestamp(state.playbackTimeMs);
+function findCueIndexByOverlay(cues, overlayText, timeMs, anchorIndex) {
+  const normalizedOverlay = normalizeCompareText(overlayText);
+  if (!normalizedOverlay || !Array.isArray(cues) || !cues.length) return -1;
 
-  const nextIndex = findCueIndex(state.sourceCues, state.playbackTimeMs, state.activeIndex);
-  const changed = nextIndex !== state.activeIndex;
-  if (changed) {
-    state.activeIndex = nextIndex;
-    state.activeTimelineIndex = nextIndex;
-    if (state.platform === 'netflix') state.nextPreviewHidden = true;
-    updateTextsFromCues();
-    updateActiveTranscriptRow();
-    maybeAutoPauseOnCueChange();
+  const range = [];
+  const center = anchorIndex >= 0 ? anchorIndex : findCueIndex(cues, timeMs, -1);
+  for (let idx = Math.max(0, center - 4); idx <= Math.min(cues.length - 1, center + 4); idx += 1) {
+    range.push(idx);
+  }
+  for (let idx = 0; idx < cues.length && range.length < 15; idx += 1) {
+    if (!range.includes(idx) && Math.abs(cues[idx].startMs - timeMs) <= 6000) range.push(idx);
   }
 
-  statusChipEl.textContent = state.playbackIsPlaying ? 'Playing' : 'Paused';
-  syncButtonStates();
+  let bestIndex = -1;
+  let bestScore = 0;
+  for (const idx of range) {
+    const cue = cues[idx];
+    if (!cue?.text) continue;
+    const score = compareCueTexts(cue.text, normalizedOverlay);
+    if (score > bestScore) {
+      bestScore = score;
+      bestIndex = idx;
+    }
+  }
+
+  return bestScore >= 0.62 ? bestIndex : -1;
 }
 
-function maybeAutoPauseOnCueChange() {
-  if (state.activeIndex < 0) return;
-  if (state.suppressAutoPauseOnce) {
-    state.suppressAutoPauseOnce = false;
-    return;
-  }
-  if (!state.autoPause || !state.playbackIsPlaying) return;
-  executeInPage(pagePausePlaybackPinned, []).catch(() => {});
-  state.playbackIsPlaying = false;
-  statusChipEl.textContent = 'Auto paused';
-}
-
-function applyYoutubeAssistSnapshot(snapshot) {
-  if (!snapshot?.ok || !state.sourceCues.length) return;
-  const snapshotTimeMs = Math.max(0, Math.round(Number(snapshot.currentTimeMs) || 0));
-  if (Number.isFinite(snapshotTimeMs)) {
-    state.playbackBaseMs = snapshotTimeMs;
-    state.playbackPerfMs = performance.now();
-    state.playbackTimeMs = snapshotTimeMs;
-    timeChipEl.textContent = formatTimestamp(snapshotTimeMs);
-  }
-  if (!snapshot.text) return;
-  const matchIndex = matchCueByDisplayedText(snapshot.text, snapshotTimeMs, state.activeIndex);
-  if (matchIndex < 0) return;
-
-  const changed = matchIndex !== state.activeIndex;
-  state.activeIndex = matchIndex;
-  state.activeTimelineIndex = matchIndex;
-  if (changed && state.platform === 'netflix') state.nextPreviewHidden = true;
-  updateTextsFromCues();
-  updateActiveTranscriptRow();
-  syncButtonStates();
-}
-
-function matchCueByDisplayedText(rawText, currentTimeMs, activeIndex) {
-  const target = normalizeCompareText(rawText);
-  if (!target) return -1;
-
-  const candidates = [];
-  const pushCandidate = (index) => {
-    if (index < 0 || index >= state.sourceCues.length) return;
-    const cue = state.sourceCues[index];
-    const cueText = normalizeCompareText(cue.text || '');
-    if (!cueText) return;
-    let score = 0;
-    if (cueText === target) score += 1000;
-    if (cueText.includes(target) || target.includes(cueText)) score += 600;
-    const overlap = computeTextOverlap(cueText, target);
-    score += overlap * 100;
-    const distance = Math.abs((cue.startMs || 0) - (Number(currentTimeMs) || 0));
-    score -= Math.min(800, distance / 8);
-    candidates.push({ index, score });
-  };
-
-  for (let i = Math.max(0, activeIndex - 8); i <= Math.min(state.sourceCues.length - 1, activeIndex + 8); i += 1) {
-    pushCandidate(i);
-  }
-  if (!candidates.length) {
-    for (let i = 0; i < state.sourceCues.length; i += 1) pushCandidate(i);
-  }
-  candidates.sort((a, b) => b.score - a.score);
-  return candidates[0] && candidates[0].score > 120 ? candidates[0].index : -1;
-}
-
-function computeTextOverlap(a, b) {
-  const aWords = new Set(String(a).split(' ').filter(Boolean));
-  const bWords = new Set(String(b).split(' ').filter(Boolean));
-  if (!aWords.size || !bWords.size) return 0;
-  let hits = 0;
-  for (const word of aWords) {
-    if (bWords.has(word)) hits += 1;
-  }
-  return hits / Math.max(aWords.size, bWords.size);
-}
-
-function updateTextsFromCues() {
-  if (state.activeIndex < 0 || !state.sourceCues[state.activeIndex]) {
-    renderTexts('Waiting for subtitle…', state.outputCues.length ? 'Đang chờ câu dịch tương ứng…' : '');
-    return;
+function compareCueTexts(cueText, overlayNormalized) {
+  const normalizedCue = normalizeCompareText(cueText);
+  if (!normalizedCue || !overlayNormalized) return 0;
+  if (normalizedCue === overlayNormalized) return 1;
+  if (normalizedCue.includes(overlayNormalized) || overlayNormalized.includes(normalizedCue)) {
+    const ratio = Math.min(normalizedCue.length, overlayNormalized.length) / Math.max(normalizedCue.length, overlayNormalized.length);
+    return 0.72 + ratio * 0.18;
   }
 
-  const sourceCue = state.sourceCues[state.activeIndex];
-  let outputText = '';
-  if (state.outputCues.length) {
-    const outputCue = findBestOutputCue(sourceCue, state.outputCues, state.activeIndex);
-    if (outputCue?.text) outputText = outputCue.text;
+  const cueWords = normalizedCue.split(' ').filter(Boolean);
+  const overlayWords = overlayNormalized.split(' ').filter(Boolean);
+  if (!cueWords.length || !overlayWords.length) return 0;
+  const overlaySet = new Set(overlayWords);
+  let overlap = 0;
+  for (const word of cueWords) {
+    if (overlaySet.has(word)) overlap += 1;
   }
-  renderTexts(sourceCue.text || 'Waiting for subtitle…', outputText);
+  return overlap / Math.max(cueWords.length, overlayWords.length);
 }
 
 function findBestOutputCue(sourceCue, cues, preferredIndex) {
@@ -864,138 +871,106 @@ function findBestOutputCue(sourceCue, cues, preferredIndex) {
   if (byIndex && Math.abs((byIndex.startMs || 0) - sourceCue.startMs) <= 2200) return byIndex;
 
   let best = null;
-  let delta = Number.POSITIVE_INFINITY;
+  let bestDelta = Number.POSITIVE_INFINITY;
   for (const cue of cues) {
-    const d = Math.abs((cue.startMs || 0) - sourceCue.startMs);
-    if (d < delta) {
-      delta = d;
+    const delta = Math.abs((cue.startMs || 0) - sourceCue.startMs);
+    if (delta < bestDelta) {
+      bestDelta = delta;
       best = cue;
     }
   }
-  return delta <= 2600 ? best : null;
+  return bestDelta <= 2600 ? best : null;
 }
 
-function startLiveCapture() {
-  stopLiveCapture();
-  state.liveTimer = window.setInterval(async () => {
-    try {
-      const snapshot = await executeInPage(pageGetNetflixLiveSnapshotPinned, []);
-      if (!snapshot?.ok) return;
-      state.playbackTimeMs = Math.max(0, Number(snapshot.currentTimeMs) || 0);
-      timeChipEl.textContent = formatTimestamp(state.playbackTimeMs);
-      statusChipEl.textContent = snapshot.text ? 'Live capture' : 'Waiting';
-
-      if (snapshot.text && snapshot.text !== state.liveText) {
-        appendOrUpdateLiveTranscriptRow(snapshot.text, state.playbackTimeMs);
-        state.liveText = snapshot.text;
-        renderTexts(snapshot.text, '');
-        updateStudyRail();
-        if (state.autoPause && snapshot.isPlaying && !state.suppressAutoPauseOnce) {
-          executeInPage(pagePausePlaybackPinned, []).catch(() => {});
-          statusChipEl.textContent = 'Auto paused';
-        }
-        state.suppressAutoPauseOnce = false;
-      }
-
-      if (!snapshot.text && state.transcriptRows.length) {
-        const current = state.transcriptRows[state.transcriptRows.length - 1];
-        if (current && current.kind === 'live') {
-          current.endMs = Math.max(current.endMs || current.startMs || 0, state.playbackTimeMs);
-        }
-      }
-
-      updateActiveTranscriptRow();
-    } catch {
-      // ignore
-    }
-  }, 150);
-}
-
-function appendOrUpdateLiveTranscriptRow(text, timeMs) {
-  const normalized = String(text || '').trim();
-  if (!normalized) return;
-
-  const previous = state.transcriptRows[state.transcriptRows.length - 1];
-  if (previous && normalizeCompareText(previous.source) === normalizeCompareText(normalized)) {
-    previous.endMs = Math.max(previous.endMs || previous.startMs || 0, timeMs);
-    state.activeTimelineIndex = state.transcriptRows.length - 1;
-    renderTranscriptList();
-    return;
-  }
-
-  if (previous && previous.kind === 'live') {
-    previous.endMs = Math.max(previous.endMs || previous.startMs || 0, timeMs);
-  }
-
-  state.transcriptRows.push({
-    startMs: Math.max(0, Number(timeMs) || 0),
-    endMs: Math.max(0, Number(timeMs) || 0),
-    source: normalized,
-    output: '',
-    kind: 'live',
-  });
-  state.activeTimelineIndex = state.transcriptRows.length - 1;
-  if (state.platform === 'netflix') state.nextPreviewHidden = true;
-  updateStudyRail();
-  renderTranscriptList();
-}
-
-async function stepCue(delta) {
+async function seekRelativeCue(delta) {
   const rows = state.transcriptRows;
   if (!rows.length) return;
-
-  const currentIndex = state.activeTimelineIndex >= 0 ? state.activeTimelineIndex : 0;
-  const targetIndex = Math.max(0, Math.min(rows.length - 1, currentIndex + delta));
-  const item = rows[targetIndex];
-  if (!item) return;
-  await seekToMs(item.startMs, {
-    suppressAutoPause: true,
-    statusText: `${delta < 0 ? 'Prev' : 'Next'} ${formatTimestamp(item.startMs)}`,
-    targetIndex,
-  });
+  const baseIndex = state.activeTimelineIndex >= 0 ? state.activeTimelineIndex : 0;
+  const nextIndex = Math.max(0, Math.min(rows.length - 1, baseIndex + delta));
+  await jumpToTranscriptIndex(nextIndex, { play: false, reason: delta < 0 ? 'prev' : 'next' });
 }
 
 async function replayActiveCue() {
-  const rows = state.transcriptRows;
-  if (!rows.length) return;
-  const currentIndex = state.activeTimelineIndex >= 0 ? state.activeTimelineIndex : 0;
-  const item = rows[currentIndex];
-  if (!item) return;
-  await seekToMs(item.startMs, {
-    suppressAutoPause: true,
-    statusText: `Replay ${formatTimestamp(item.startMs)}`,
-    targetIndex: currentIndex,
-  });
+  const index = state.activeTimelineIndex >= 0 ? state.activeTimelineIndex : state.activeIndex;
+  if (index < 0) return;
+  await jumpToTranscriptIndex(index, { play: true, reason: 'replay' });
 }
 
-async function seekToMs(timeMs, options = {}) {
+async function jumpToTranscriptIndex(index, { play = false, reason = 'seek' } = {}) {
+  const row = state.transcriptRows[index];
+  if (!row || !Number.isFinite(row.startMs)) return;
+
   try {
-    await executeInPage(pageSeekPlaybackPinned, [timeMs]);
-    state.playbackBaseMs = Math.max(0, Number(timeMs) || 0);
-    state.playbackPerfMs = performance.now();
-    state.playbackTimeMs = state.playbackBaseMs;
-    if (Number.isInteger(options.targetIndex)) {
-      state.activeTimelineIndex = options.targetIndex;
-      state.activeIndex = options.targetIndex;
-      updateTextsFromCues();
-      updateActiveTranscriptRow();
-    }
-    if (options.suppressAutoPause) state.suppressAutoPauseOnce = true;
-    if (options.statusText) setStatus(options.statusText);
+    state.suppressAutoPauseOnce = play;
+    await executeInPage(pagePlaybackCommandPinned, [{ action: 'seek', timeMs: row.startMs, play }]);
+    state.activeTimelineIndex = index;
+    if (state.sourceCues.length && index < state.sourceCues.length) state.activeIndex = index;
+    updateTextsFromState();
+    updateActiveTranscriptRow();
+    setStatus(
+      reason === 'prev'
+        ? `Prev ${formatTimestamp(row.startMs)}`
+        : reason === 'next'
+          ? `Next ${formatTimestamp(row.startMs)}`
+          : reason === 'replay'
+            ? `Replay ${formatTimestamp(row.startMs)}`
+            : `Seek ${formatTimestamp(row.startMs)}`
+    );
   } catch (error) {
     setStatus(error?.message || 'Không seek được video.');
   }
 }
 
+async function togglePlayback() {
+  try {
+    const result = await executeInPage(pagePlaybackCommandPinned, [{ action: 'toggle' }]);
+    if (result?.ok) setStatus(result.isPlaying ? 'Playing' : 'Paused');
+  } catch (error) {
+    setStatus(error?.message || 'Không điều khiển được playback.');
+  }
+}
+
+function getCurrentCueTextForCopy() {
+  const index = state.activeIndex >= 0 ? state.activeIndex : state.activeTimelineIndex;
+  const row = state.transcriptRows[index];
+  if (!row) return '';
+  const parts = [`${state.sourceLabel || 'Source'}: ${row.source || ''}`];
+  if (row.output) parts.push(`${state.outputLabel || 'Output'}: ${row.output}`);
+  return parts.join('\n');
+}
+
 function buildTranscriptExportText() {
   if (!state.transcriptRows.length) return '';
-  return state.transcriptRows
-    .map((row) => {
-      const time = formatTimestamp(row.startMs);
-      const output = row.output ? `\n${state.outputLabel || 'Output'}: ${row.output}` : '';
-      return `[${time}] ${state.sourceLabel || 'Source'}: ${row.source}${output}`;
-    })
-    .join('\n\n');
+  return state.transcriptRows.map((row) => {
+    const time = formatTimestamp(row.startMs);
+    const output = row.output ? `\n${state.outputLabel || 'Output'}: ${row.output}` : '';
+    return `[${time}] ${state.sourceLabel || 'Source'}: ${row.source}${output}`;
+  }).join('\n\n');
+}
+
+function setStatus(text) {
+  statusChipEl.textContent = text || 'Ready';
+}
+
+function normalizeCueText(text) {
+  return String(text || '')
+    .replace(/\u200b/g, '')
+    .replace(/\r/g, '')
+    .replace(/\s+\n/g, '\n')
+    .replace(/\n\s+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
+function normalizeCompareText(text) {
+  return normalizeCueText(text)
+    .toLowerCase()
+    .replace(/\[[^\]]+\]/g, ' ')
+    .replace(/[“”"'`´’]/g, '')
+    .replace(/[.,!?;:(){}<>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function formatTimestamp(ms) {
@@ -1007,49 +982,6 @@ function formatTimestamp(ms) {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')},${String(millis).padStart(3, '0')}`;
 }
 
-function sanitizeCues(cues) {
-  const normalized = [];
-  const seen = new Set();
-  for (const cue of Array.isArray(cues) ? cues : []) {
-    const startMs = Math.max(0, Math.round(Number(cue?.startMs) || 0));
-    const endMs = Math.max(startMs + 1, Math.round(Number(cue?.endMs) || startMs + 1800));
-    const text = String(cue?.text || '')
-      .replace(/\u200b/g, '')
-      .replace(/\r/g, '')
-      .replace(/\s+\n/g, '\n')
-      .replace(/\n\s+/g, '\n')
-      .replace(/\n{3,}/g, '\n\n')
-      .replace(/[ \t]{2,}/g, ' ')
-      .trim();
-    if (!text) continue;
-    const key = `${startMs}|${text}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    normalized.push({ startMs, endMs, text });
-  }
-
-  normalized.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
-  for (let i = 0; i < normalized.length - 1; i += 1) {
-    if (normalized[i].endMs <= normalized[i].startMs) {
-      normalized[i].endMs = Math.max(normalized[i].startMs + 1, normalized[i + 1].startMs);
-    }
-    if (normalized[i].endMs > normalized[i + 1].startMs && normalized[i + 1].startMs > normalized[i].startMs) {
-      normalized[i].endMs = normalized[i + 1].startMs;
-    }
-  }
-  return normalized;
-}
-
-function normalizeCompareText(text) {
-  return String(text || '')
-    .toLowerCase()
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\[[^\]]+\]/g, ' ')
-    .replace(/[“”"'`’.,!?;:()]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function escapeHtml(text) {
   return String(text || '')
     .replace(/&/g, '&amp;')
@@ -1059,15 +991,117 @@ function escapeHtml(text) {
     .replace(/'/g, '&#39;');
 }
 
-function pageGetPlaybackSnapshotPinned() {
+function pagePlaybackCommandPinned(command) {
   try {
     const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
     if (!video) return { ok: false, error: 'Không tìm thấy player HTML5.' };
+
+    const action = String(command?.action || '');
+    const timeMs = Math.max(0, Number(command?.timeMs) || 0);
+    const shouldPlay = Boolean(command?.play);
+
+    if (action === 'seek') {
+      video.currentTime = timeMs / 1000;
+      if (shouldPlay) {
+        try { video.play(); } catch {}
+      }
+      return {
+        ok: true,
+        currentTimeMs: Math.round(Number(video.currentTime || 0) * 1000),
+        isPlaying: !video.paused,
+      };
+    }
+
+    if (action === 'pause') {
+      video.pause();
+      return { ok: true, isPlaying: false };
+    }
+
+    if (action === 'play') {
+      try { video.play(); } catch {}
+      return { ok: true, isPlaying: !video.paused };
+    }
+
+    if (action === 'toggle') {
+      if (video.paused) {
+        try { video.play(); } catch {}
+      } else {
+        video.pause();
+      }
+      return { ok: true, isPlaying: !video.paused };
+    }
+
+    return { ok: false, error: 'Unknown playback command.' };
+  } catch (error) {
+    return { ok: false, error: error?.message || 'Không điều khiển được playback.' };
+  }
+}
+
+function pageGetPlaybackSnapshotPinned() {
+  function normalizeText(value) {
+    return String(value || '')
+      .replace(/\u200b/g, '')
+      .replace(/\r/g, '')
+      .replace(/\s+\n/g, '\n')
+      .replace(/\n\s+/g, '\n')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim();
+  }
+
+  function getYoutubeCaptionText() {
+    const nodeGroups = [
+      document.querySelectorAll('.ytp-caption-window-container .ytp-caption-segment'),
+      document.querySelectorAll('.caption-window .caption-visual-line .ytp-caption-segment'),
+      document.querySelectorAll('.captions-text .caption-visual-line span'),
+      document.querySelectorAll('.ytp-caption-window-bottom .ytp-caption-segment'),
+    ];
+
+    for (const nodes of nodeGroups) {
+      const parts = Array.from(nodes).map((node) => normalizeText(node.textContent || '')).filter(Boolean);
+      if (parts.length) return parts.join(' ');
+    }
+
+    const blocks = Array.from(document.querySelectorAll('.ytp-caption-window-container .caption-window'));
+    for (const block of blocks) {
+      const text = normalizeText(block.innerText || block.textContent || '');
+      if (text) return text;
+    }
+    return '';
+  }
+
+  function getNetflixCaptionText() {
+    const selectors = [
+      '[data-uia="player-subtitle"]',
+      '[data-uia="subtitle-text"]',
+      '.player-timedtext',
+      '.player-timedtext-text-container',
+      '[class*="timedtext"] [class*="text"]',
+      '.watch-video--player-view [class*="timedtext"]',
+    ];
+
+    for (const selector of selectors) {
+      const nodes = Array.from(document.querySelectorAll(selector));
+      const parts = nodes
+        .map((node) => normalizeText(node.innerText || node.textContent || ''))
+        .filter(Boolean);
+      if (parts.length) return parts.join('\n');
+    }
+    return '';
+  }
+
+  try {
+    const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
+    if (!video) return { ok: false, error: 'Không tìm thấy player HTML5.' };
+
+    const youtubeText = getYoutubeCaptionText();
+    const netflixText = youtubeText ? '' : getNetflixCaptionText();
+
     return {
       ok: true,
       currentTimeMs: Math.round(Number(video.currentTime || 0) * 1000),
       playbackRate: Number(video.playbackRate || 1) || 1,
       isPlaying: !video.paused && !video.ended && Number(video.readyState || 0) >= 2,
+      captionText: youtubeText || netflixText,
       url: location.href,
     };
   } catch (error) {
@@ -1075,100 +1109,14 @@ function pageGetPlaybackSnapshotPinned() {
   }
 }
 
-function pagePausePlaybackPinned() {
-  try {
-    const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
-    if (!video) return { ok: false, error: 'Không tìm thấy player HTML5.' };
-    video.pause();
-    return { ok: true, paused: video.paused };
-  } catch (error) {
-    return { ok: false, error: error?.message || 'Không pause được video.' };
-  }
-}
-
-function pageTogglePlaybackPinned() {
-  try {
-    const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
-    if (!video) return { ok: false, error: 'Không tìm thấy player HTML5.' };
-    if (video.paused || video.ended) {
-      const playPromise = video.play?.();
-      if (playPromise && typeof playPromise.catch === 'function') playPromise.catch(() => {});
-    } else {
-      video.pause();
-    }
-    return {
-      ok: true,
-      isPlaying: !video.paused && !video.ended && Number(video.readyState || 0) >= 2,
-      currentTimeMs: Math.round(Number(video.currentTime || 0) * 1000),
-    };
-  } catch (error) {
-    return { ok: false, error: error?.message || 'Không đổi được trạng thái phát.' };
-  }
-}
-
-function pageSeekPlaybackPinned(timeMs) {
-  try {
-    const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
-    if (!video) return { ok: false, error: 'Không tìm thấy player HTML5.' };
-    video.currentTime = Math.max(0, Number(timeMs || 0) / 1000);
-    return { ok: true, currentTimeMs: Math.round(Number(video.currentTime || 0) * 1000) };
-  } catch (error) {
-    return { ok: false, error: error?.message || 'Không seek được video.' };
-  }
-}
-
-function pageGetYoutubeCaptionSnapshotPinned() {
-  function normalizeText(value) {
-    return String(value || '')
-      .replace(/\u200b/g, '')
-      .replace(/\s+\n/g, '\n')
-      .replace(/\n\s+/g, '\n')
-      .replace(/[ \t]{2,}/g, ' ')
-      .trim();
-  }
-
-  try {
-    const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
-    const containers = [
-      '.ytp-caption-window-container',
-      '.captions-text',
-      '.ytp-caption-segment',
-      '.ytp-caption-window-bottom',
-    ];
-
-    let text = '';
-    for (const selector of containers) {
-      const nodes = Array.from(document.querySelectorAll(selector));
-      const parts = nodes
-        .map((node) => normalizeText(node.innerText || node.textContent || ''))
-        .filter(Boolean);
-      if (parts.length) {
-        text = normalizeText(parts.join('\n'));
-        if (text) break;
-      }
-    }
-
-    return {
-      ok: true,
-      currentTimeMs: Math.round(Number(video?.currentTime || 0) * 1000),
-      text,
-    };
-  } catch (error) {
-    return { ok: false, error: error?.message || 'Không đọc được caption overlay YouTube.' };
-  }
-}
-
 function pageGetYoutubeMetadataPinned() {
-  const debug = [];
-  function push(message) {
-    debug.push(String(message));
-  }
   function getTextFromRuns(node) {
     if (!node) return '';
     if (typeof node.simpleText === 'string') return node.simpleText;
     if (Array.isArray(node.runs)) return node.runs.map((item) => item.text || '').join('');
     return '';
   }
+
   function normalizeBaseUrl(url) {
     try {
       return new URL(String(url || '').replace(/\\u0026/g, '&'), location.href).toString();
@@ -1176,204 +1124,77 @@ function pageGetYoutubeMetadataPinned() {
       return '';
     }
   }
-  function extractBalancedJson(source, assignmentIndex) {
-    const start = source.indexOf('{', assignmentIndex);
-    if (start === -1) return null;
-    let depth = 0;
-    let inString = false;
-    let escaping = false;
-    for (let i = start; i < source.length; i += 1) {
-      const char = source[i];
-      if (inString) {
-        if (escaping) escaping = false;
-        else if (char === '\\') escaping = true;
-        else if (char === '"') inString = false;
-        continue;
-      }
-      if (char === '"') {
-        inString = true;
-        continue;
-      }
-      if (char === '{') depth += 1;
-      if (char === '}') {
-        depth -= 1;
-        if (depth === 0) return source.slice(start, i + 1);
-      }
-    }
-    return null;
-  }
-  function tryParsePlayerResponseFromScripts() {
-    const markers = [
-      'var ytInitialPlayerResponse = ',
-      'ytInitialPlayerResponse = ',
-      'window["ytInitialPlayerResponse"] = ',
-      'ytplayer.config = ',
-    ];
-    const scripts = Array.from(document.scripts).map((script) => script.textContent || '').filter(Boolean);
-    for (const source of scripts) {
-      for (const marker of markers) {
-        const markerIndex = source.indexOf(marker);
-        if (markerIndex === -1) continue;
-        const jsonText = extractBalancedJson(source, markerIndex + marker.length);
-        if (!jsonText) continue;
-        try {
-          const parsed = JSON.parse(jsonText);
-          if (marker === 'ytplayer.config = ') {
-            const raw = parsed?.args?.player_response;
-            if (raw) return typeof raw === 'string' ? JSON.parse(raw) : raw;
-          }
-          return parsed;
-        } catch {
-          // ignore
-        }
-      }
-    }
-    return null;
-  }
+
   function getPlayerResponse() {
     try {
       const player = document.getElementById('movie_player');
       const response = player?.getPlayerResponse?.();
       if (response && typeof response === 'object') return response;
-    } catch (error) {
-      push(`movie_player.getPlayerResponse lỗi: ${error.message}`);
-    }
+    } catch {}
     try {
       if (window.ytInitialPlayerResponse) return window.ytInitialPlayerResponse;
-    } catch {
-      // ignore
-    }
+    } catch {}
     try {
       const raw = window.ytplayer?.config?.args?.player_response;
       if (raw) return JSON.parse(raw);
-    } catch {
-      // ignore
-    }
-    try {
-      const raw = window.ytcfg?.data_?.PLAYER_VARS?.player_response || window.ytcfg?.get?.('PLAYER_VARS')?.player_response;
-      if (raw) return typeof raw === 'string' ? JSON.parse(raw) : raw;
-    } catch {
-      // ignore
-    }
-    return tryParsePlayerResponseFromScripts();
+    } catch {}
+    return null;
   }
-  function getCurrentCaptionTrackHint() {
+
+  function detectDefaultSourceIndex(sourceTracks) {
     try {
       const player = document.getElementById('movie_player');
       const current = player?.getOption?.('captions', 'track');
-      if (current && typeof current === 'object') {
-        return {
-          languageCode: current.languageCode || current.lang || '',
-          vssId: current.vssId || current.vss_id || '',
-          kind: current.kind || '',
-        };
-      }
+      if (!current) return 0;
+      const index = sourceTracks.findIndex((track) => {
+        const sameLang = track.languageCode === (current.languageCode || current.lang || '');
+        const sameVss = track.vssId && current.vss_id && track.vssId === current.vss_id;
+        return sameLang || sameVss;
+      });
+      return index >= 0 ? index : 0;
     } catch {
-      // ignore
+      return 0;
     }
-    return null;
-  }
-  function matchTrackIndexFromHint(sourceTracks, hint) {
-    if (!hint) return -1;
-    const byVssId = sourceTracks.findIndex((track) => track.vssId && hint.vssId && track.vssId === hint.vssId);
-    if (byVssId >= 0) return byVssId;
-    return sourceTracks.findIndex((track) => {
-      return (
-        track.languageCode === hint.languageCode &&
-        (!hint.kind || track.kind === hint.kind || track.isAuto === (hint.kind === 'asr'))
-      );
-    });
-  }
-  function getAudioTrackInfo(sourceTracks, renderer) {
-    const audioTracks = Array.isArray(renderer?.audioTracks) ? renderer.audioTracks : [];
-    for (const audioTrack of audioTracks) {
-      const idx = Number(audioTrack?.defaultCaptionTrackIndex);
-      if (Number.isInteger(idx) && idx >= 0 && idx < sourceTracks.length) {
-        return {
-          index: idx,
-          languageCode: sourceTracks[idx]?.languageCode || '',
-          reason: 'audio mặc định',
-        };
-      }
-    }
-    return { index: -1, languageCode: '', reason: '' };
-  }
-  function computeOriginalTrackInfo(sourceTracks, renderer) {
-    if (!Array.isArray(sourceTracks) || !sourceTracks.length) return { index: -1, languageCode: '', reason: '' };
-    const audioInfo = getAudioTrackInfo(sourceTracks, renderer);
-    if (audioInfo.index >= 0) return audioInfo;
-    const firstManual = sourceTracks.findIndex((track) => !track.isAuto);
-    if (firstManual >= 0) {
-      return { index: firstManual, languageCode: sourceTracks[firstManual]?.languageCode || '', reason: 'manual đầu tiên' };
-    }
-    const currentIndex = matchTrackIndexFromHint(sourceTracks, getCurrentCaptionTrackHint());
-    if (currentIndex >= 0) {
-      return { index: currentIndex, languageCode: sourceTracks[currentIndex]?.languageCode || '', reason: 'track đang bật' };
-    }
-    return { index: 0, languageCode: sourceTracks[0]?.languageCode || '', reason: 'fallback' };
-  }
-  function computeDefaultSourceInfo(sourceTracks, renderer, originalInfo) {
-    const currentIndex = matchTrackIndexFromHint(sourceTracks, getCurrentCaptionTrackHint());
-    if (currentIndex >= 0) {
-      return { index: currentIndex, languageCode: sourceTracks[currentIndex]?.languageCode || '', reason: 'track đang bật' };
-    }
-    return originalInfo;
   }
 
   const playerResponse = getPlayerResponse();
-  if (!playerResponse) return { ok: false, error: 'Không đọc được player response từ trang YouTube.', debug };
+  if (!playerResponse) return { ok: false, error: 'Không đọc được player response từ trang YouTube.' };
+
   const renderer = playerResponse?.captions?.playerCaptionsTracklistRenderer;
   const captionTracks = Array.isArray(renderer?.captionTracks) ? renderer.captionTracks : [];
   const translationLanguages = Array.isArray(renderer?.translationLanguages) ? renderer.translationLanguages : [];
 
-  const sourceTracks = captionTracks.map((track, index) => {
-    const languageCode = track.languageCode || 'unknown';
-    const displayName = getTextFromRuns(track.name) || languageCode;
-    const isAuto = track.kind === 'asr';
-    return {
-      index,
-      label: `${displayName} [${languageCode}]${isAuto ? ' • auto' : ''}`,
-      languageCode,
-      baseUrl: normalizeBaseUrl(track.baseUrl),
-      kind: track.kind || 'standard',
-      name: displayName,
-      vssId: track.vssId || '',
-      isAuto,
-      isTranslatable: Boolean(track.isTranslatable),
-      isTranslation: false,
-      sourceLanguageCode: languageCode,
-      sourceName: displayName,
-    };
-  });
+  const sourceTracks = captionTracks.map((track, index) => ({
+    index,
+    label: `${getTextFromRuns(track.name) || track.languageCode || 'unknown'} [${track.languageCode || 'unknown'}]${track.kind === 'asr' ? ' • auto' : ''}`,
+    languageCode: track.languageCode || 'unknown',
+    baseUrl: normalizeBaseUrl(track.baseUrl),
+    kind: track.kind || 'standard',
+    name: getTextFromRuns(track.name) || track.languageCode || 'unknown',
+    vssId: track.vssId || '',
+    isAuto: track.kind === 'asr',
+    isTranslatable: Boolean(track.isTranslatable),
+    isTranslation: false,
+    sourceLanguageCode: track.languageCode || 'unknown',
+  }));
 
-  const translationLangs = translationLanguages
+  const langs = translationLanguages
     .map((lang) => ({
       languageCode: lang?.languageCode || '',
       name: getTextFromRuns(lang?.languageName) || lang?.languageCode || '',
     }))
     .filter((item) => item.languageCode);
 
-  const originalTrackInfo = computeOriginalTrackInfo(sourceTracks, renderer);
-  const defaultSourceInfo = computeDefaultSourceInfo(sourceTracks, renderer, originalTrackInfo);
-  const audioInfo = getAudioTrackInfo(sourceTracks, renderer);
-
   return {
     ok: true,
     sourceTracks,
-    translationLanguages: translationLangs,
-    defaultSourceIndex: defaultSourceInfo.index,
-    originalTrackIndex: originalTrackInfo.index,
-    originalLanguageCode: originalTrackInfo.languageCode,
-    audioLanguageCode: audioInfo.languageCode,
-    debug,
+    translationLanguages: langs,
+    defaultSourceIndex: detectDefaultSourceIndex(sourceTracks),
   };
 }
 
 async function pageFetchYoutubeTrackPinned(track) {
-  const debug = [];
-  const push = (line) => debug.push(String(line));
-
-  function normalizeCueText(text) {
+  function normalizeCueTextLocal(text) {
     return String(text || '')
       .replace(/\u200b/g, '')
       .replace(/\r/g, '')
@@ -1383,294 +1204,142 @@ async function pageFetchYoutubeTrackPinned(track) {
       .replace(/[ \t]{2,}/g, ' ')
       .trim();
   }
+
   function decodeHtmlEntities(text) {
     const el = document.createElement('textarea');
     el.innerHTML = text;
     return el.value;
   }
+
   function parseClockToMs(value) {
     const raw = String(value || '').trim().replace(',', '.');
     if (!raw) return 0;
     if (/^\d+(\.\d+)?$/.test(raw)) return Math.round(parseFloat(raw) * 1000);
     const match = raw.match(/^(?:(\d+):)?(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?$/);
     if (!match) return 0;
-    return Number(match[1] || 0) * 3600000 + Number(match[2] || 0) * 60000 + Number(match[3] || 0) * 1000 + Number((match[4] || '0').padEnd(3, '0'));
+    return (
+      Number(match[1] || 0) * 3600000 +
+      Number(match[2] || 0) * 60000 +
+      Number(match[3] || 0) * 1000 +
+      Number((match[4] || '0').padEnd(3, '0'))
+    );
   }
-  function parseJson3ToCues(payload) {
-    const events = Array.isArray(payload?.events) ? payload.events : [];
-    const cues = [];
-    for (let i = 0; i < events.length; i += 1) {
-      const event = events[i];
-      const rawText = Array.isArray(event?.segs) ? event.segs.map((segment) => segment?.utf8 || '').join('') : '';
-      const text = normalizeCueText(rawText);
-      if (!text) continue;
-      const startMs = Number(event?.tStartMs ?? 0);
-      const nextEvent = events[i + 1];
-      const durationMs = Number(event?.dDurationMs ?? 0);
-      let endMs = startMs + durationMs;
-      if (!durationMs && nextEvent?.tStartMs != null) endMs = Number(nextEvent.tStartMs);
-      if (!endMs || endMs <= startMs) endMs = startMs + 1800;
-      cues.push({ startMs, endMs, text });
-    }
-    return cues;
-  }
-  function parseXmlToCues(text) {
-    const xml = new DOMParser().parseFromString(text, 'text/xml');
-    if (xml.querySelector('parsererror')) return [];
 
-    const transcriptNodes = Array.from(xml.querySelectorAll('transcript text'));
-    if (transcriptNodes.length) {
-      return transcriptNodes
+  function parseXml(xmlText) {
+    const xml = new DOMParser().parseFromString(xmlText, 'text/xml');
+    const legacyTexts = Array.from(xml.querySelectorAll('text'));
+    if (legacyTexts.length) {
+      return legacyTexts
         .map((node) => {
-          const startMs = Math.round(Number(node.getAttribute('start') || 0) * 1000);
-          const durMs = Math.round(Number(node.getAttribute('dur') || 0) * 1000);
+          const startMs = Math.round((parseFloat(node.getAttribute('start') || '0') || 0) * 1000);
+          const durMs = Math.round((parseFloat(node.getAttribute('dur') || '0') || 0) * 1000);
           const endMs = durMs > 0 ? startMs + durMs : startMs + 1800;
-          const content = normalizeCueText(decodeHtmlEntities(node.textContent || ''));
-          return content ? { startMs, endMs, text: content } : null;
+          const html = Array.from(node.childNodes).map((child) => child.textContent || '').join('');
+          const text = normalizeCueTextLocal(decodeHtmlEntities(html || node.textContent || ''));
+          return text ? { startMs, endMs, text } : null;
         })
         .filter(Boolean);
     }
 
-    const pNodes = Array.from(xml.querySelectorAll('p'));
-    return pNodes
-      .map((node, index) => {
-        let startMs = Number(node.getAttribute('t'));
-        let durMs = Number(node.getAttribute('d'));
-        if (!Number.isFinite(startMs)) startMs = parseClockToMs(node.getAttribute('begin'));
-        if (!Number.isFinite(durMs)) {
-          const endAttr = node.getAttribute('end');
-          if (endAttr) {
-            const endMs = parseClockToMs(endAttr);
-            durMs = Math.max(0, endMs - startMs);
-          } else if (node.getAttribute('dur')) {
-            durMs = parseClockToMs(node.getAttribute('dur'));
-          } else {
-            durMs = 0;
-          }
-        }
-        const content = normalizeCueText(node.textContent || '');
-        if (!content) return null;
-        let endMs = startMs + durMs;
-        if (!endMs || endMs <= startMs) {
-          const nextNode = pNodes[index + 1];
-          const nextStart = nextNode ? Number(nextNode.getAttribute('t')) : NaN;
-          endMs = Number.isFinite(nextStart) && nextStart > startMs ? nextStart : startMs + 1800;
-        }
-        return { startMs, endMs, text: content };
+    const timed = Array.from(xml.querySelectorAll('p'));
+    return timed
+      .map((node) => {
+        const startMs = parseClockToMs(node.getAttribute('begin') || node.getAttribute('start') || '0');
+        const endMs = parseClockToMs(node.getAttribute('end') || '0');
+        const durMs = parseClockToMs(node.getAttribute('dur') || '0');
+        const finalEnd = endMs > startMs ? endMs : startMs + (durMs > 0 ? durMs : 1800);
+        const text = normalizeCueTextLocal(decodeHtmlEntities(node.textContent || ''));
+        return text ? { startMs, endMs: finalEnd, text } : null;
       })
       .filter(Boolean);
   }
-  function parseVttToCues(text) {
-    const normalized = String(text || '').replace(/\r/g, '');
-    const blocks = normalized.split(/\n{2,}/);
+
+  function parseJsonText(text) {
+    try {
+      const data = JSON.parse(text);
+      const events = Array.isArray(data?.events) ? data.events : [];
+      return events
+        .map((event) => {
+          const startMs = Number(event.tStartMs || event.tStartMs === 0 ? event.tStartMs : 0);
+          const durMs = Number(event.dDurationMs || 0);
+          const segs = Array.isArray(event.segs) ? event.segs : [];
+          const textValue = normalizeCueTextLocal(segs.map((seg) => decodeHtmlEntities(seg.utf8 || '')).join(''));
+          return textValue ? { startMs, endMs: durMs > 0 ? startMs + durMs : startMs + 1800, text: textValue } : null;
+        })
+        .filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
+  function parseVtt(vttText) {
+    const blocks = String(vttText || '')
+      .replace(/^WEBVTT.*?(\n\n|\r\n\r\n)/s, '')
+      .split(/\r?\n\r?\n/)
+      .map((block) => block.trim())
+      .filter(Boolean);
     const cues = [];
     for (const block of blocks) {
-      const lines = block.split('\n').map((line) => line.trimEnd()).filter(Boolean);
+      const lines = block.split(/\r?\n/).filter(Boolean);
       if (!lines.length) continue;
-      if (/^WEBVTT/i.test(lines[0]) || /^NOTE/i.test(lines[0]) || /^STYLE/i.test(lines[0])) continue;
-      const timingLineIndex = lines.findIndex((line) => line.includes('-->'));
-      if (timingLineIndex === -1) continue;
-      const timingLine = lines[timingLineIndex];
-      const parts = timingLine.split(/\s+-->\s+/);
-      if (parts.length !== 2) continue;
-      const startMs = parseClockToMs(parts[0].split(' ')[0].replace(',', '.'));
-      const endMs = parseClockToMs(parts[1].split(' ')[0].replace(',', '.'));
-      const cueText = normalizeCueText(lines.slice(timingLineIndex + 1).join('\n'));
-      if (!cueText) continue;
-      cues.push({ startMs, endMs: endMs > startMs ? endMs : startMs + 1800, text: cueText });
+      const timeLineIndex = lines.findIndex((line) => line.includes('-->'));
+      if (timeLineIndex < 0) continue;
+      const [startRaw, endRaw] = lines[timeLineIndex].split('-->').map((part) => String(part || '').trim().split(' ')[0]);
+      const textValue = normalizeCueTextLocal(lines.slice(timeLineIndex + 1).join('\n'));
+      if (!textValue) continue;
+      const startMs = parseClockToMs(startRaw);
+      const endMs = parseClockToMs(endRaw);
+      cues.push({ startMs, endMs: endMs > startMs ? endMs : startMs + 1800, text: textValue });
     }
     return cues;
   }
-  function parseContent(text, contentType) {
-    const trimmed = String(text || '').trim();
-    const type = String(contentType || '').toLowerCase();
-    if (!trimmed) return { format: 'empty', cues: [] };
-    if (trimmed.startsWith('{') || trimmed.startsWith('[') || type.includes('json')) {
-      try {
-        return { format: 'json3', cues: parseJson3ToCues(JSON.parse(trimmed)) };
-      } catch (error) {
-        push(`Parse JSON lỗi: ${error.message}`);
-      }
-    }
-    if (/^WEBVTT/i.test(trimmed) || type.includes('vtt')) {
-      return { format: 'vtt', cues: parseVttToCues(trimmed) };
-    }
-    if (trimmed.startsWith('<') || type.includes('xml') || type.includes('ttml')) {
-      return { format: 'xml', cues: parseXmlToCues(trimmed) };
-    }
-    return { format: 'unknown', cues: [] };
-  }
-  function normalizeBaseUrl(url) {
+
+  async function fetchText(url) {
     try {
-      return new URL(String(url || '').replace(/\\u0026/g, '&'), location.href).toString();
-    } catch {
-      return '';
+      const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+      const text = await response.text();
+      return { ok: response.ok, text };
+    } catch (error) {
+      return { ok: false, text: '', error: error?.message || 'fetch failed' };
     }
-  }
-  function safeUrl(url) {
-    try {
-      return new URL(String(url || '').replace(/\\u0026/g, '&'), location.href);
-    } catch {
-      return null;
-    }
-  }
-  function buildEffectiveTrackUrl(item) {
-    try {
-      const url = new URL(normalizeBaseUrl(item.baseUrl), location.href);
-      if (item.isTranslation && item.targetLanguageCode) {
-        url.searchParams.set('tlang', item.targetLanguageCode);
-        url.searchParams.set('lang', item.sourceLanguageCode || item.languageCode);
-      } else {
-        url.searchParams.delete('tlang');
-        url.searchParams.set('lang', item.languageCode);
-      }
-      return url.toString();
-    } catch {
-      return '';
-    }
-  }
-  function addCandidate(candidates, seen, url, reason) {
-    const parsed = safeUrl(url);
-    if (!parsed) return;
-    parsed.hash = '';
-    const normalized = parsed.toString();
-    if (seen.has(normalized)) return;
-    seen.add(normalized);
-    candidates.push({ url: normalized, reason });
-  }
-  function buildFormatVariants(url, item) {
-    const parsed = safeUrl(url);
-    if (!parsed) return [];
-    if (item.isTranslation && item.targetLanguageCode) {
-      parsed.searchParams.set('tlang', item.targetLanguageCode);
-      parsed.searchParams.set('lang', item.sourceLanguageCode || item.languageCode);
-    } else {
-      parsed.searchParams.delete('tlang');
-      parsed.searchParams.set('lang', item.languageCode);
-    }
-    const raw = parsed.toString();
-    const variants = [raw];
-    for (const fmt of ['json3', 'srv3', 'vtt', 'ttml']) {
-      const variant = new URL(raw);
-      variant.searchParams.set('fmt', fmt);
-      variants.push(variant.toString());
-    }
-    const noFmt = new URL(raw);
-    noFmt.searchParams.delete('fmt');
-    variants.push(noFmt.toString());
-    return variants;
-  }
-  function matchesTrack(url, item) {
-    const parsed = safeUrl(url);
-    if (!parsed) return false;
-    if (!parsed.pathname.includes('/api/timedtext')) return false;
-    const lang = parsed.searchParams.get('lang');
-    const tlang = parsed.searchParams.get('tlang');
-    const vssId = parsed.searchParams.get('vssid') || parsed.searchParams.get('vss_id');
-    if (item.isTranslation) {
-      return (!item.vssId || !vssId || item.vssId === vssId) &&
-        lang === (item.sourceLanguageCode || item.languageCode) &&
-        tlang === item.targetLanguageCode;
-    }
-    if (item.vssId && vssId && item.vssId !== vssId) return false;
-    return lang === item.languageCode && !tlang;
-  }
-  function collectNetworkTimedtextUrls() {
-    return (performance.getEntriesByType('resource') || [])
-      .map((entry) => entry?.name || '')
-      .filter((name) => name.includes('/api/timedtext'));
-  }
-  async function tryActivateTrack(item) {
-    const player = document.getElementById('movie_player');
-    if (!player) return;
-    try {
-      player.loadModule?.('captions');
-    } catch {
-      // ignore
-    }
-    const baseLanguage = item.sourceLanguageCode || item.languageCode;
-    const payloads = [
-      { languageCode: baseLanguage },
-      { languageCode: baseLanguage, kind: item.kind },
-      item.vssId ? { languageCode: baseLanguage, vssId: item.vssId } : null,
-      item.vssId ? { languageCode: baseLanguage, vss_id: item.vssId } : null,
-    ].filter(Boolean);
-    for (const payload of payloads) {
-      try {
-        player.setOption?.('captions', 'track', payload);
-      } catch {
-        // ignore
-      }
-    }
-    try {
-      player.setOption?.('captions', 'reload', true);
-    } catch {
-      // ignore
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-  }
-  async function tryFetchCandidates(candidates) {
-    for (const candidate of candidates) {
-      try {
-        const response = await fetch(candidate.url, { credentials: 'include', cache: 'no-store' });
-        const contentType = response.headers.get('content-type') || '';
-        const text = await response.text();
-        const parsed = parseContent(text, contentType);
-        push(`Thử ${candidate.reason}: status=${response.status}, format=${parsed.format}, cues=${parsed.cues.length}`);
-        if (!response.ok) continue;
-        if (parsed.cues.length) {
-          return {
-            ok: true,
-            cues: parsed.cues,
-            sourceUrl: candidate.url,
-            sourceFormat: parsed.format,
-            debug,
-          };
-        }
-      } catch (error) {
-        push(`Fetch lỗi (${candidate.reason}): ${error.message}`);
-      }
-    }
-    return null;
   }
 
-  if (!track?.baseUrl) return { ok: false, error: 'Track không có baseUrl.', debug };
-  const effectiveUrl = buildEffectiveTrackUrl(track);
-  if (!effectiveUrl) return { ok: false, error: 'Không tạo được URL phụ đề hợp lệ.', debug };
+  try {
+    const variants = [
+      { fmt: 'json3', parser: parseJsonText },
+      { fmt: 'srv3', parser: parseXml },
+      { fmt: 'vtt', parser: parseVtt },
+      { fmt: '', parser: (text) => parseXml(text).length ? parseXml(text) : parseVtt(text) },
+    ];
 
-  const initialNetworkUrls = collectNetworkTimedtextUrls();
-  const firstCandidates = [];
-  const firstSeen = new Set();
-  for (const url of initialNetworkUrls.filter((candidate) => matchesTrack(candidate, track))) {
-    for (const variant of buildFormatVariants(url, track)) addCandidate(firstCandidates, firstSeen, variant, 'performance entry');
+    for (const variant of variants) {
+      const url = new URL(track.baseUrl, location.href);
+      if (variant.fmt) url.searchParams.set('fmt', variant.fmt);
+      else url.searchParams.delete('fmt');
+      if (track.isTranslation && track.targetLanguageCode) url.searchParams.set('tlang', track.targetLanguageCode);
+      const result = await fetchText(url.toString());
+      const raw = String(result.text || '').trim();
+      if (!raw) continue;
+      const cues = variant.parser(raw);
+      if (cues.length) return { ok: true, cues };
+    }
+
+    return { ok: false, error: 'Timedtext không trả về cue nào có thể parse.' };
+  } catch (error) {
+    return { ok: false, error: error?.message || 'Không tải được timedtext.' };
   }
-  for (const variant of buildFormatVariants(effectiveUrl, track)) addCandidate(firstCandidates, firstSeen, variant, 'effective track url');
-
-  let result = await tryFetchCandidates(firstCandidates);
-  if (result) return result;
-
-  await tryActivateTrack(track);
-
-  const secondNetworkUrls = collectNetworkTimedtextUrls();
-  const secondCandidates = [];
-  const secondSeen = new Set();
-  for (const url of secondNetworkUrls.filter((candidate) => matchesTrack(candidate, track))) {
-    for (const variant of buildFormatVariants(url, track)) addCandidate(secondCandidates, secondSeen, variant, 'performance entry sau kích hoạt');
-  }
-  for (const variant of buildFormatVariants(effectiveUrl, track)) addCandidate(secondCandidates, secondSeen, variant, 'effective track url');
-
-  result = await tryFetchCandidates(secondCandidates);
-  if (result) return result;
-
-  return { ok: false, error: 'Timedtext không trả được dữ liệu parse được cho lựa chọn này.', debug };
 }
 
 function pageGetNetflixMetadataPinned() {
   try {
     const video = document.querySelector('video');
     if (!video) return { ok: false, error: 'Không tìm thấy video Netflix đang phát.' };
-    const textTracks = Array.from(video.textTracks || []).filter((track) => ['subtitles', 'captions'].includes(String(track.kind || '').toLowerCase()));
-    const activeIndex = textTracks.findIndex((track) => ['showing', 'hidden'].includes(String(track.mode || '').toLowerCase()));
+
+    const textTracks = Array.from(video.textTracks || []).filter((track) =>
+      ['subtitles', 'captions'].includes(String(track.kind || '').toLowerCase())
+    );
+
+    const activeIndex = textTracks.findIndex((track) => String(track.mode || '').toLowerCase() === 'showing');
     const sourceTracks = textTracks.map((track, index) => ({
       index,
       platform: 'netflix',
@@ -1680,6 +1349,7 @@ function pageGetNetflixMetadataPinned() {
       languageCode: track.language || `track-${index + 1}`,
       name: track.label || track.language || `track-${index + 1}`,
     }));
+
     sourceTracks.push({
       index: sourceTracks.length,
       platform: 'netflix',
@@ -1689,7 +1359,12 @@ function pageGetNetflixMetadataPinned() {
       languageCode: 'live',
       name: 'Live capture',
     });
-    return { ok: true, sourceTracks, defaultSourceIndex: activeIndex >= 0 ? activeIndex : 0 };
+
+    return {
+      ok: true,
+      sourceTracks,
+      defaultSourceIndex: activeIndex >= 0 ? activeIndex : 0,
+    };
   } catch (error) {
     return { ok: false, error: error?.message || 'Không đọc được metadata Netflix.' };
   }
@@ -1698,18 +1373,22 @@ function pageGetNetflixMetadataPinned() {
 async function pageFetchNetflixTrackPinned(track) {
   function normalizeText(value) {
     return String(value || '')
-      .replace(/\u200b/g, '')
       .replace(/\s+\n/g, '\n')
       .replace(/\n\s+/g, '\n')
       .replace(/[ \t]{2,}/g, ' ')
       .trim();
   }
+
   if (track?.fetchStrategy === 'liveCapture') return { ok: false, liveCaptureOnly: true };
+
   try {
     const video = document.querySelector('video');
-    if (!video) return { ok: false, error: 'Không tìm thấy video Netflix.', liveCaptureOnly: true };
+    if (!video) return { ok: false, error: 'Không tìm thấy video Netflix.' };
 
-    const textTracks = Array.from(video.textTracks || []).filter((candidate) => ['subtitles', 'captions'].includes(String(candidate.kind || '').toLowerCase()));
+    const textTracks = Array.from(video.textTracks || []).filter((candidate) =>
+      ['subtitles', 'captions'].includes(String(candidate.kind || '').toLowerCase())
+    );
+
     const selectedTrack = textTracks[Number(track.textTrackIndex)] || textTracks[0] || null;
     if (!selectedTrack) return { ok: false, liveCaptureOnly: true };
 
@@ -1717,20 +1396,17 @@ async function pageFetchNetflixTrackPinned(track) {
     textTracks.forEach((candidate) => {
       try {
         candidate.mode = candidate === selectedTrack ? 'hidden' : 'disabled';
-      } catch {
-        // ignore
-      }
+      } catch {}
     });
 
     let cues = [];
-    for (let attempt = 0; attempt < 14; attempt += 1) {
+    for (let attempt = 0; attempt < 9; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 220));
-      const source = Array.from(selectedTrack.cues || []);
-      cues = source
+      cues = Array.from(selectedTrack.cues || [])
         .map((cue) => ({
           startMs: Math.round(Number(cue.startTime || 0) * 1000),
           endMs: Math.round(Number(cue.endTime || 0) * 1000),
-          text: normalizeText(cue.text || cue.id || ''),
+          text: normalizeText(cue.text || ''),
         }))
         .filter((cue) => cue.text);
       if (cues.length) break;
@@ -1739,58 +1415,11 @@ async function pageFetchNetflixTrackPinned(track) {
     textTracks.forEach((candidate, index) => {
       try {
         candidate.mode = restore[index] || 'disabled';
-      } catch {
-        // ignore
-      }
+      } catch {}
     });
 
     return cues.length ? { ok: true, cues } : { ok: false, liveCaptureOnly: true };
   } catch (error) {
     return { ok: false, error: error?.message || 'Không đọc được subtitle Netflix.', liveCaptureOnly: true };
-  }
-}
-
-function pageGetNetflixLiveSnapshotPinned() {
-  function normalizeText(value) {
-    return String(value || '')
-      .replace(/\u200b/g, '')
-      .replace(/\s+\n/g, '\n')
-      .replace(/\n\s+/g, '\n')
-      .replace(/[ \t]{2,}/g, ' ')
-      .trim();
-  }
-
-  try {
-    const video = document.querySelector('video');
-    if (!video) return { ok: false, error: 'Không tìm thấy video.' };
-
-    const selectors = [
-      '[data-uia="player-subtitle"]',
-      '[data-uia="subtitle-text"]',
-      '.player-timedtext',
-      '.player-timedtext-text-container',
-      '[class*="timedtext"] [class*="text"]',
-      '[class*="watch-video"] [class*="timedtext"]',
-    ];
-
-    let text = '';
-    for (const selector of selectors) {
-      const nodes = Array.from(document.querySelectorAll(selector));
-      const parts = nodes.map((node) => normalizeText(node.innerText || node.textContent || '')).filter(Boolean);
-      if (parts.length) {
-        text = normalizeText(parts.join('\n'));
-        break;
-      }
-    }
-
-    return {
-      ok: true,
-      currentTimeMs: Math.round(Number(video.currentTime || 0) * 1000),
-      playbackRate: Number(video.playbackRate || 1) || 1,
-      isPlaying: !video.paused && !video.ended && Number(video.readyState || 0) >= 2,
-      text,
-    };
-  } catch (error) {
-    return { ok: false, error: error?.message || 'Không đọc được live subtitle Netflix.' };
   }
 }

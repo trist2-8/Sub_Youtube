@@ -4,11 +4,25 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>YT Subtitle Grabber</title>
+    <style>
+      html, body {
+        margin: 0;
+        width: 420px;
+        min-width: 420px;
+        max-width: 420px;
+        height: 720px;
+        min-height: 720px;
+        overflow: hidden;
+        background: #0f1115;
+        color: #eaf0f8;
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+    </style>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <main class="app-shell">
-      <div class="app-frame is-default">
+      <div class="app-frame">
         <div class="app-glow"></div>
 
         <header class="app-header">
@@ -20,8 +34,8 @@
               </svg>
             </div>
             <div class="brand-copy">
-              <h1>Subtitle Grabber</h1>
-              <p>YouTube • Netflix • Pin review</p>
+              <h1>YT Subtitle Grabber</h1>
+              <p>Extract • Review • Export</p>
             </div>
           </div>
 
@@ -33,7 +47,14 @@
               </svg>
             </button>
 
-            <button id="historyBtn" class="icon-btn" type="button" title="History" aria-expanded="false" aria-controls="historyPanel">
+            <button
+              id="historyBtn"
+              class="icon-btn"
+              type="button"
+              title="History"
+              aria-expanded="false"
+              aria-controls="historyPanel"
+            >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M3 12a9 9 0 1 0 3-6.7" />
                 <path d="M3 4v5h5" />
@@ -41,7 +62,12 @@
               </svg>
             </button>
 
-            <button id="pinBtn" class="icon-btn" type="button" title="Pin">
+            <button
+              id="pinBtn"
+              class="icon-btn"
+              type="button"
+              title="Pin"
+            >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M14 4 20 10" />
                 <path d="M4 20l6-6" />
@@ -51,7 +77,14 @@
               </svg>
             </button>
 
-            <button id="settingsBtn" class="icon-btn" type="button" title="Settings" aria-expanded="false" aria-controls="settingsPanel">
+            <button
+              id="settingsBtn"
+              class="icon-btn"
+              type="button"
+              title="Settings"
+              aria-expanded="false"
+              aria-controls="settingsPanel"
+            >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="3.2" />
                 <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 0 1-2.82 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.55V22a2 2 0 0 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.57 1.7 1.7 0 0 0-1.8.36l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1.03H2a2 2 0 0 1 0-4h.09a1.7 1.7 0 0 0 1.57-1.11 1.7 1.7 0 0 0-.36-1.8l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H8a1.7 1.7 0 0 0 1.03-1.55V2a2 2 0 0 1 4 0v.09a1.7 1.7 0 0 0 1.11 1.57 1.7 1.7 0 0 0 1.8-.36l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V8c0 .7.42 1.33 1.07 1.59.15.06.31.1.48.1H22a2 2 0 0 1 0 4h-.09A1.7 1.7 0 0 0 20.34 15" />
@@ -62,7 +95,7 @@
 
         <div class="app-body">
           <section class="card hero-card">
-            <div class="hero-top compact-top">
+            <div class="hero-top">
               <div class="video-thumb-wrap">
                 <img id="videoThumb" class="video-thumb" alt="" />
               </div>
@@ -71,41 +104,39 @@
                 <div class="meta-badges">
                   <span id="subtitleBadge" class="status-badge is-idle">Waiting</span>
                   <span id="lineCountBadge" class="status-pill">0 lines</span>
-                  <span id="platformBadge" class="status-pill">Workspace</span>
                 </div>
 
-                <h2 id="videoTitle">Mở một video YouTube hoặc Netflix để bắt đầu</h2>
-                <p id="channelName" class="channel-name">Extension sẽ đọc tab đang mở và tối ưu giao diện theo từng nền tảng</p>
+                <h2 id="videoTitle">Mở một video YouTube để bắt đầu</h2>
+                <p id="channelName" class="channel-name">Extension sẽ đọc video đang mở trong tab hiện tại</p>
                 <p id="trackMeta" class="track-meta">Track gốc: -</p>
               </div>
             </div>
 
-            <div class="hero-chip-row compact-chips">
-              <span class="hero-chip">Cleaner UI</span>
-              <span class="hero-chip">Live pin</span>
+            <div class="hero-chip-row">
+              <span class="hero-chip">Original first</span>
+              <span class="hero-chip">Bilingual ready</span>
               <span class="hero-chip">Range export</span>
-              <span id="siteProfileChip" class="hero-chip">Profile · Auto</span>
+              <span id="siteProfileChip" class="hero-chip">Profile memory · Auto</span>
             </div>
 
-            <div class="platform-profile-row">
-              <div class="sync-preset-row compact-sync-row">
-                <span class="sync-preset-label">Quick sync</span>
-                <div class="sync-preset-group" role="group" aria-label="Quick sync presets">
-                  <button id="syncPresetAccurateBtn" class="sync-preset-btn" type="button">Accurate</button>
-                  <button id="syncPresetSmoothBtn" class="sync-preset-btn is-active" type="button">Smooth</button>
-                  <button id="syncPresetAggressiveBtn" class="sync-preset-btn" type="button">Aggressive</button>
-                </div>
-                <span id="pinModeChip" class="sync-preset-note">Pin · Dual</span>
+            <div class="sync-preset-row">
+              <span class="sync-preset-label">Quick sync</span>
+              <div class="sync-preset-group" role="group" aria-label="Quick sync presets">
+                <button id="syncPresetAccurateBtn" class="sync-preset-btn" type="button">Accurate</button>
+                <button id="syncPresetSmoothBtn" class="sync-preset-btn is-active" type="button">Smooth</button>
+                <button id="syncPresetAggressiveBtn" class="sync-preset-btn" type="button">Aggressive</button>
               </div>
+              <span id="pinModeChip" class="sync-preset-note">Pin · Dual</span>
+            </div>
 
-              <div class="quick-pin-row">
-                <div class="quick-pin-group" role="group" aria-label="Pin mode presets">
-                  <button id="pinModeCompactQuickBtn" class="quick-pin-btn" type="button">Compact</button>
-                  <button id="pinModeDualQuickBtn" class="quick-pin-btn is-active" type="button">Dual</button>
-                  <button id="pinModeReviewQuickBtn" class="quick-pin-btn" type="button">Review</button>
-                </div>
-                <button id="reopenPinBtn" class="secondary-btn ghost-btn" type="button">Reopen pin</button>
+            <div class="pin-quick-row">
+              <span class="sync-preset-label">Pin mode</span>
+              <div class="sync-preset-group" role="group" aria-label="Quick pin mode presets">
+                <button id="pinModeCompactQuickBtn" class="sync-preset-btn sync-preset-btn-sm" type="button">Compact</button>
+                <button id="pinModeDualQuickBtn" class="sync-preset-btn sync-preset-btn-sm is-active" type="button">Dual</button>
+                <button id="pinModeReviewQuickBtn" class="sync-preset-btn sync-preset-btn-sm" type="button">Review</button>
               </div>
+              <button id="reopenPinBtn" class="mini-btn reopen-btn" type="button">Reopen pin</button>
             </div>
 
             <div class="hero-controls-grid">
@@ -133,22 +164,27 @@
               </div>
             </div>
 
-            <div class="hero-footer compact-footer">
-              <p id="status" class="status-line">Mở một video YouTube rồi bấm Get subtitles hoặc dùng Pin cho Netflix.</p>
+            <div class="hero-footer">
+              <p id="status" class="status-line">Mở một video YouTube rồi bấm Get subtitles hoặc refresh.</p>
               <div class="hero-inline-actions">
+                <div class="sync-preset-group sync-preset-group-inline" role="group" aria-label="Quick sync presets footer">
+                  <button id="footerSyncPresetAccurateBtn" class="sync-preset-btn sync-preset-btn-sm" type="button">Accurate</button>
+                  <button id="footerSyncPresetSmoothBtn" class="sync-preset-btn sync-preset-btn-sm is-active" type="button">Smooth</button>
+                  <button id="footerSyncPresetAggressiveBtn" class="sync-preset-btn sync-preset-btn-sm" type="button">Aggressive</button>
+                </div>
                 <button id="getSubtitlesBtn" class="primary-btn" type="button">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M12 3v18" />
                     <path d="M7 8h9.5a4.5 4.5 0 1 1 0 9H7" />
                   </svg>
-                  <span class="primary-btn-label">Get subtitles</span>
+                  Get subtitles
                 </button>
               </div>
             </div>
           </section>
 
           <section class="card workspace-card">
-            <div class="section-head section-head-compact">
+            <div class="section-head">
               <div>
                 <p class="section-kicker">Transcript workspace</p>
                 <h3>Readable output panel</h3>
@@ -352,7 +388,14 @@
             </button>
 
             <div class="export-wrap">
-              <button id="exportMenuBtn" class="secondary-btn" type="button" disabled aria-expanded="false" aria-controls="exportMenu">
+              <button
+                id="exportMenuBtn"
+                class="secondary-btn"
+                type="button"
+                disabled
+                aria-expanded="false"
+                aria-controls="exportMenu"
+              >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M12 3v12" />
                   <path d="m7 10 5 5 5-5" />
@@ -373,6 +416,12 @@
                 <button id="copySrtBtn" type="button" disabled>Copy SRT</button>
               </div>
             </div>
+          </div>
+
+          <div class="tabs-wrap footer-tabs" role="tablist" aria-label="Footer transcript modes">
+            <button class="tab-btn is-active" type="button" data-tab="text" role="tab" aria-selected="true">Text</button>
+            <button class="tab-btn" type="button" data-tab="timed" role="tab" aria-selected="false">Timed</button>
+            <button class="tab-btn" type="button" data-tab="srt" role="tab" aria-selected="false">SRT</button>
           </div>
         </footer>
       </div>
