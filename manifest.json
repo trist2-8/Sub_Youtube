@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "YT Subtitle Grabber",
-  "version": "4.14.0",
-  "description": "YouTube and Netflix subtitle workspace with tighter timed sync, study controls, pin window review mode, and dual-sub support where available.",
+  "version": "4.16.5",
+  "description": "Subtitle extractor with safer pin workflow, pin status on header, per-platform pin layout presets, focused reopen behavior, and YouTube/Netflix host support.",
   "minimum_chrome_version": "114",
   "permissions": [
     "activeTab",
@@ -14,7 +14,8 @@
   "host_permissions": [
     "https://www.youtube.com/*",
     "https://m.youtube.com/*",
-    "https://music.youtube.com/*"
+    "https://music.youtube.com/*",
+    "https://www.netflix.com/*"
   ],
   "action": {
     "default_title": "YT Subtitle Grabber",
@@ -24,5 +25,35 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://m.youtube.com/*",
+        "https://music.youtube.com/*",
+        "https://www.netflix.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "page-bridge.js"
+      ],
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://m.youtube.com/*",
+        "https://music.youtube.com/*",
+        "https://www.netflix.com/*"
+      ]
+    }
+  ]
 }

@@ -6,9 +6,9 @@ const MAX_HISTORY_ITEMS = 10;
 const WATCH_INTERVAL_MS = 1600;
 
 const DEFAULT_PIN_PREFS = {
-  default: { width: 980, height: 720, mode: 'dual', syncPreset: 'smooth' },
-  youtube: { width: 1040, height: 760, mode: 'dual', syncPreset: 'smooth' },
-  netflix: { width: 1220, height: 860, mode: 'review', syncPreset: 'smooth' },
+  default: { width: 520, height: 340, mode: 'dual', syncPreset: 'smooth' },
+  youtube: { width: 520, height: 340, mode: 'dual', syncPreset: 'smooth' },
+  netflix: { width: 560, height: 380, mode: 'review', syncPreset: 'smooth' },
 };
 
 const SYNC_PRESET_MAP = {
